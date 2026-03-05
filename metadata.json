@@ -1,0 +1,5 @@
+{
+  "name": "WhatsApp Messaging System",
+  "description": "A system to send scheduled and bulk WhatsApp messages via Evolution API.",
+  "requestFramePermissions": []
+}
