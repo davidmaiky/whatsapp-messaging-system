@@ -16,9 +16,21 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
+      host: '0.0.0.0', // Força escuta em todos os IPs
+      port: 3000,
+      strictPort: true,
+      // Suporte para Vite 6.x
+      allowedHosts: true, 
+      // Suporte para Vite 5.x e anteriores
+      hmr: {
+        clientPort: 443,
+        host: 'maikysoft-uatizapi.iomi94.easypanel.host'
+      },
     },
+    // Desativa a checagem de host de forma global (fallback)
+    preview: {
+      host: true,
+      allowedHosts: true
+    }
   };
 });
