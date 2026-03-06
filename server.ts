@@ -6,6 +6,7 @@ import cron from "node-cron";
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import { existsSync } from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -480,9 +481,15 @@ app.use((err: any, req: any, res: any, next: any) => {
 
 async function startServer() {
   const PORT = 3000;
+  const distPath = path.join(__dirname, 'dist');
+  const hasDistFolder = existsSync(distPath);
+  
+  // Use production mode only if dist folder exists
+  const isProduction = process.env.NODE_ENV === "production" && hasDistFolder;
 
-  if (process.env.NODE_ENV !== "production") {
+  if (!isProduction) {
     console.log('Starting in development mode with Vite...');
+    console.log('Dist folder exists:', hasDistFolder);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -490,22 +497,23 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     console.log('Starting in production mode...');
-    // Serve static files from dist folder in production
-    app.use(express.static(path.join(__dirname, 'dist')));
+    // Serve static files from dist folder in production (except index.html)
+    app.use(express.static(distPath, { index: false }));
     
-    // Serve index.html for all non-API routes
-    app.get('*', (req, res, next) => {
-      // Skip API routes
+    // Serve index.html for all non-API routes (must be after all API routes)
+    app.get('*', (req, res) => {
+      // Don't serve index.html for API routes
       if (req.path.startsWith('/api/') || req.path === '/reset-password') {
-        return next();
+        return res.status(404).json({ error: 'Not found' });
       }
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+      res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Mode: ${isProduction ? 'production' : 'development'}`);
+    console.log(`NODE_ENV: ${process.env.NODE_ENV || 'not set'}`);
   });
 }
 
