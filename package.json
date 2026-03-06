@@ -5,18 +5,19 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "start": "node server.js",
+    "start": "tsx server.ts",
     "build": "vite build && tsc",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "postinstall": "npm rebuild better-sqlite3 || echo 'Warning: better-sqlite3 rebuild failed'"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "axios": "^1.13.6",
-    "better-sqlite3": "^12.4.1",
+    "better-sqlite3": "^12.6.2",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",

@@ -4,7 +4,7 @@
  */
 
 import { useState, ChangeEvent, useEffect } from 'react';
-import { CheckCircle2, AlertCircle, Send, Users, Clock, Settings, Upload, Trash2, Search, MessageCircle, History } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Send, Users, Clock, Settings, Upload, Trash2, Search, MessageCircle, History, UserPlus, Shield, Edit2, X } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -24,7 +24,34 @@ interface ScheduledMessage {
   status: string;
 }
 
+interface User {
+  id: number;
+  username: string;
+  email: string;
+  role: string;
+  created_at: string;
+}
+
+interface Role {
+  id: number;
+  name: string;
+  permissions: string;
+  description: string;
+}
+
 type Page = 'send-now' | 'bulk-send' | 'schedule' | 'history' | 'settings';
+type SettingsTab = 'general' | 'users' | 'roles';
+
+const availablePermissions = [
+  { id: 'send-now', label: 'Enviar Mensagem Agora', description: 'Permite enviar mensagens individuais imediatamente' },
+  { id: 'bulk-send', label: 'Envio em Massa', description: 'Permite enviar mensagens para múltiplos contatos' },
+  { id: 'schedule', label: 'Agendar Mensagens', description: 'Permite agendar mensagens para envio futuro' },
+  { id: 'view-history', label: 'Visualizar Histórico', description: 'Permite visualizar histórico de mensagens' },
+  { id: 'clear-history', label: 'Limpar Histórico', description: 'Permite limpar histórico de mensagens' },
+  { id: 'manage-users', label: 'Gerenciar Usuários', description: 'Permite criar, editar e excluir usuários' },
+  { id: 'manage-roles', label: 'Gerenciar Grupos', description: 'Permite criar, editar e excluir grupos de permissões' },
+  { id: 'system-settings', label: 'Configurações do Sistema', description: 'Permite alterar configurações gerais do sistema' },
+];
 
 export default function App() {
   const [activePage, setActivePage] = useState<Page>('send-now');
@@ -45,6 +72,13 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [instanceName, setInstanceName] = useState('');
   const [timezone, setTimezone] = useState('America/Sao_Paulo');
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
+  const [users, setUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'user' });
+  const [newRole, setNewRole] = useState({ name: '', description: '', permissions: [] as string[] });
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editingRole, setEditingRole] = useState<Role | null>(null);
   const itemsPerPage = 10;
 
   const showNotification = (type: 'success' | 'error', message: string) => {
@@ -68,6 +102,8 @@ export default function App() {
     fetchMessages();
     fetchScheduledMessages();
     fetchSettings();
+    fetchUsers();
+    fetchRoles();
     const interval = setInterval(() => {
       fetchMessages();
       fetchScheduledMessages();
@@ -89,6 +125,151 @@ export default function App() {
       body: JSON.stringify({ instanceName, timezone }),
     });
     showNotification('success', 'Configurações atualizadas com sucesso!');
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch('/api/users');
+      if (!res.ok) {
+        console.error('Error fetching users:', res.status);
+        return;
+      }
+      const data = await res.json();
+      setUsers(data);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    }
+  };
+
+  const fetchRoles = async () => {
+    try {
+      const res = await fetch('/api/roles');
+      if (!res.ok) {
+        console.error('Error fetching roles:', res.status);
+        return;
+      }
+      const data = await res.json();
+      setRoles(data);
+    } catch (error) {
+      console.error('Error fetching roles:', error);
+    }
+  };
+
+  const createUser = async () => {
+    if (!newUser.username || !newUser.email || !newUser.password) {
+      showNotification('error', 'Preencha todos os campos obrigatórios');
+      return;
+    }
+    console.log('Creating user:', newUser);
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser),
+      });
+      console.log('Response status:', response.status);
+      
+      // Check if response has content
+      const text = await response.text();
+      console.log('Response text:', text);
+      
+      let data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (e) {
+        console.error('Error parsing JSON:', e);
+        showNotification('error', 'Erro ao processar resposta do servidor');
+        return;
+      }
+      
+      if (!response.ok) {
+        showNotification('error', data.error || 'Erro ao criar usuário');
+        return;
+      }
+      showNotification('success', 'Usuário criado com sucesso!');
+      setNewUser({ username: '', email: '', password: '', role: 'user' });
+      fetchUsers();
+    } catch (error: any) {
+      console.error('Error creating user:', error);
+      showNotification('error', error.message || 'Erro ao criar usuário');
+    }
+  };
+
+  const deleteUser = async (id: number) => {
+    if (!confirm('Tem certeza que deseja excluir este usuário?')) return;
+    try {
+      await fetch(`/api/users/${id}`, { method: 'DELETE' });
+      showNotification('success', 'Usuário excluído com sucesso!');
+      fetchUsers();
+    } catch {
+      showNotification('error', 'Erro ao excluir usuário');
+    }
+  };
+
+  const createRole = async () => {
+    if (!newRole.name) {
+      showNotification('error', 'Nome do grupo é obrigatório');
+      return;
+    }
+    console.log('Creating role:', newRole);
+    try {
+      const roleData = {
+        name: newRole.name,
+        description: newRole.description,
+        permissions: newRole.permissions.join(',')
+      };
+      console.log('Role data:', roleData);
+      const response = await fetch('/api/roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(roleData),
+      });
+      console.log('Response status:', response.status);
+      
+      // Check if response has content
+      const text = await response.text();
+      console.log('Response text:', text);
+      
+      let data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (e) {
+        console.error('Error parsing JSON:', e);
+        showNotification('error', 'Erro ao processar resposta do servidor');
+        return;
+      }
+      
+      if (!response.ok) {
+        showNotification('error', data.error || 'Erro ao criar grupo');
+        return;
+      }
+      showNotification('success', 'Grupo criado com sucesso!');
+      setNewRole({ name: '', description: '', permissions: [] });
+      fetchRoles();
+    } catch (error: any) {
+      console.error('Error creating role:', error);
+      showNotification('error', error.message || 'Erro ao criar grupo');
+    }
+  };
+
+  const togglePermission = (permissionId: string) => {
+    setNewRole(prev => ({
+      ...prev,
+      permissions: prev.permissions.includes(permissionId)
+        ? prev.permissions.filter(p => p !== permissionId)
+        : [...prev.permissions, permissionId]
+    }));
+  };
+
+  const deleteRole = async (id: number) => {
+    if (!confirm('Tem certeza que deseja excluir este grupo?')) return;
+    try {
+      await fetch(`/api/roles/${id}`, { method: 'DELETE' });
+      showNotification('success', 'Grupo excluído com sucesso!');
+      fetchRoles();
+    } catch {
+      showNotification('error', 'Erro ao excluir grupo');
+    }
   };
 
   const sendNow = async () => {
@@ -504,72 +685,339 @@ export default function App() {
 
       case 'settings':
         return (
-          <div className="bg-white rounded-xl shadow-lg p-8 max-w-2xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8">
             <div className="flex items-center gap-3 mb-6">
               <Settings className="w-6 h-6 text-gray-600" />
               <h2 className="text-2xl font-bold text-gray-800">Configurações</h2>
             </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Nome da Instância Evolution API
-                </label>
-                <input 
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-transparent transition" 
-                  value={instanceName} 
-                  onChange={e => setInstanceName(e.target.value)} 
-                  placeholder="Ex: minha-instancia"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Nome da instância configurada no Evolution API
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Fuso Horário do Sistema
-                </label>
-                <select 
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-transparent transition" 
-                  value={timezone} 
-                  onChange={e => setTimezone(e.target.value)}
-                >
-                  <option value="America/Sao_Paulo">São Paulo (GMT-3)</option>
-                  <option value="America/Rio_Branco">Rio Branco (GMT-5)</option>
-                  <option value="America/Manaus">Manaus (GMT-4)</option>
-                  <option value="America/Fortaleza">Fortaleza (GMT-3)</option>
-                  <option value="America/Recife">Recife (GMT-3)</option>
-                  <option value="America/Bahia">Salvador (GMT-3)</option>
-                  <option value="America/Belem">Belém (GMT-3)</option>
-                  <option value="America/Cuiaba">Cuiabá (GMT-4)</option>
-                  <option value="America/Campo_Grande">Campo Grande (GMT-4)</option>
-                  <option value="America/Porto_Velho">Porto Velho (GMT-4)</option>
-                  <option value="America/Boa_Vista">Boa Vista (GMT-4)</option>
-                  <option value="America/Maceio">Maceió (GMT-3)</option>
-                  <option value="America/Araguaina">Araguaína (GMT-3)</option>
-                  <option value="America/Santarem">Santarém (GMT-3)</option>
-                  <option value="America/Noronha">Fernando de Noronha (GMT-2)</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  Fuso horário usado para exibir datas e horários no sistema
-                </p>
-              </div>
-              <button 
-                className="w-full p-4 bg-gray-700 hover:bg-gray-800 text-white rounded-lg font-medium transition shadow-md hover:shadow-lg text-lg" 
-                onClick={updateSettings}
+
+            {/* Tabs */}
+            <div className="flex gap-2 mb-6 border-b">
+              <button
+                onClick={() => setSettingsTab('general')}
+                className={`px-4 py-2 font-medium transition ${
+                  settingsTab === 'general'
+                    ? 'text-green-600 border-b-2 border-green-600'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
               >
-                Salvar Configurações
+                Geral
               </button>
-              <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <h3 className="font-semibold text-gray-800 mb-2">Informações do Sistema</h3>
-                <div className="space-y-2 text-sm text-gray-600">
-                  <p><strong>Versão:</strong> 1.0.0</p>
-                  <p><strong>Instância Ativa:</strong> {instanceName || 'Não configurada'}</p>
-                  <p><strong>Fuso Horário:</strong> {timezone}</p>
-                  <p><strong>Total de Mensagens:</strong> {messages.length}</p>
-                  <p><strong>Mensagens Agendadas:</strong> {scheduledMessages.length}</p>
+              <button
+                onClick={() => setSettingsTab('users')}
+                className={`px-4 py-2 font-medium transition flex items-center gap-2 ${
+                  settingsTab === 'users'
+                    ? 'text-green-600 border-b-2 border-green-600'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                <UserPlus className="w-4 h-4" />
+                Usuários
+              </button>
+              <button
+                onClick={() => setSettingsTab('roles')}
+                className={`px-4 py-2 font-medium transition flex items-center gap-2 ${
+                  settingsTab === 'roles'
+                    ? 'text-green-600 border-b-2 border-green-600'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                <Shield className="w-4 h-4" />
+                Grupos e Permissões
+              </button>
+            </div>
+
+            {/* Tab Content */}
+            {settingsTab === 'general' && (
+              <div className="space-y-4 max-w-2xl">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nome da Instância Evolution API
+                  </label>
+                  <input 
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-transparent transition" 
+                    value={instanceName} 
+                    onChange={e => setInstanceName(e.target.value)} 
+                    placeholder="Ex: minha-instancia"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Nome da instância configurada no Evolution API
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Fuso Horário do Sistema
+                  </label>
+                  <select 
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-transparent transition" 
+                    value={timezone} 
+                    onChange={e => setTimezone(e.target.value)}
+                  >
+                    <option value="America/Sao_Paulo">São Paulo (GMT-3)</option>
+                    <option value="America/Rio_Branco">Rio Branco (GMT-5)</option>
+                    <option value="America/Manaus">Manaus (GMT-4)</option>
+                    <option value="America/Fortaleza">Fortaleza (GMT-3)</option>
+                    <option value="America/Recife">Recife (GMT-3)</option>
+                    <option value="America/Bahia">Salvador (GMT-3)</option>
+                    <option value="America/Belem">Belém (GMT-3)</option>
+                    <option value="America/Cuiaba">Cuiabá (GMT-4)</option>
+                    <option value="America/Campo_Grande">Campo Grande (GMT-4)</option>
+                    <option value="America/Porto_Velho">Porto Velho (GMT-4)</option>
+                    <option value="America/Boa_Vista">Boa Vista (GMT-4)</option>
+                    <option value="America/Maceio">Maceió (GMT-3)</option>
+                    <option value="America/Araguaina">Araguaína (GMT-3)</option>
+                    <option value="America/Santarem">Santarém (GMT-3)</option>
+                    <option value="America/Noronha">Fernando de Noronha (GMT-2)</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Fuso horário usado para exibir datas e horários no sistema
+                  </p>
+                </div>
+                <button 
+                  className="w-full p-4 bg-gray-700 hover:bg-gray-800 text-white rounded-lg font-medium transition shadow-md hover:shadow-lg text-lg" 
+                  onClick={updateSettings}
+                >
+                  Salvar Configurações
+                </button>
+                <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <h3 className="font-semibold text-gray-800 mb-2">Informações do Sistema</h3>
+                  <div className="space-y-2 text-sm text-gray-600">
+                    <p><strong>Versão:</strong> 1.0.0</p>
+                    <p><strong>Instância Ativa:</strong> {instanceName || 'Não configurada'}</p>
+                    <p><strong>Fuso Horário:</strong> {timezone}</p>
+                    <p><strong>Total de Mensagens:</strong> {messages.length}</p>
+                    <p><strong>Mensagens Agendadas:</strong> {scheduledMessages.length}</p>
+                    <p><strong>Usuários Cadastrados:</strong> {users.length}</p>
+                    <p><strong>Grupos de Permissões:</strong> {roles.length}</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
+
+            {settingsTab === 'users' && (
+              <div className="space-y-6">
+                {/* Create User Form */}
+                <div className="bg-green-50 p-6 rounded-lg border border-green-200">
+                  <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <UserPlus className="w-5 h-5 text-green-600" />
+                    Criar Novo Usuário
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nome de Usuário</label>
+                      <input
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        value={newUser.username}
+                        onChange={e => setNewUser({ ...newUser, username: e.target.value })}
+                        placeholder="usuario123"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                      <input
+                        type="email"
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        value={newUser.email}
+                        onChange={e => setNewUser({ ...newUser, email: e.target.value })}
+                        placeholder="usuario@exemplo.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Senha</label>
+                      <input
+                        type="password"
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        value={newUser.password}
+                        onChange={e => setNewUser({ ...newUser, password: e.target.value })}
+                        placeholder="••••••••"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Grupo</label>
+                      <select
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        value={newUser.role}
+                        onChange={e => setNewUser({ ...newUser, role: e.target.value })}
+                      >
+                        <option value="user">Usuário</option>
+                        <option value="admin">Administrador</option>
+                        {roles.map(role => (
+                          <option key={role.id} value={role.name}>{role.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <button
+                    onClick={createUser}
+                    className="mt-4 px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition shadow-md"
+                  >
+                    Criar Usuário
+                  </button>
+                </div>
+
+                {/* Users Table */}
+                <div>
+                  <h3 className="font-semibold text-gray-800 mb-4">Usuários Cadastrados ({users.length})</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b-2 border-gray-200 bg-gray-50">
+                          <th className="p-3 text-left text-sm font-semibold text-gray-700">ID</th>
+                          <th className="p-3 text-left text-sm font-semibold text-gray-700">Usuário</th>
+                          <th className="p-3 text-left text-sm font-semibold text-gray-700">Email</th>
+                          <th className="p-3 text-left text-sm font-semibold text-gray-700">Grupo</th>
+                          <th className="p-3 text-left text-sm font-semibold text-gray-700">Criado em</th>
+                          <th className="p-3 text-left text-sm font-semibold text-gray-700">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {users.map(user => (
+                          <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="p-3 text-sm text-gray-600">{user.id}</td>
+                            <td className="p-3 text-sm text-gray-800 font-medium">{user.username}</td>
+                            <td className="p-3 text-sm text-gray-600">{user.email}</td>
+                            <td className="p-3">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                user.role === 'admin' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {user.role}
+                              </span>
+                            </td>
+                            <td className="p-3 text-sm text-gray-500">
+                              {new Date(user.created_at).toLocaleDateString('pt-BR')}
+                            </td>
+                            <td className="p-3">
+                              <button
+                                onClick={() => deleteUser(user.id)}
+                                className="text-red-600 hover:text-red-800 transition"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {settingsTab === 'roles' && (
+              <div className="space-y-6">
+                {/* Create Role Form */}
+                <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+                  <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-blue-600" />
+                    Criar Novo Grupo de Permissões
+                  </h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Grupo</label>
+                      <input
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={newRole.name}
+                        onChange={e => setNewRole({ ...newRole, name: e.target.value })}
+                        placeholder="Ex: Operador, Gestor, etc"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
+                      <input
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={newRole.description}
+                        onChange={e => setNewRole({ ...newRole, description: e.target.value })}
+                        placeholder="Descreva as responsabilidades deste grupo"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-3">Permissões</label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {availablePermissions.map(permission => (
+                          <div
+                            key={permission.id}
+                            className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-blue-50 transition cursor-pointer"
+                            onClick={() => togglePermission(permission.id)}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={newRole.permissions.includes(permission.id)}
+                              onChange={() => togglePermission(permission.id)}
+                              className="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-gray-800">{permission.label}</p>
+                              <p className="text-xs text-gray-500 mt-1">{permission.description}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        {newRole.permissions.length} permiss{newRole.permissions.length !== 1 ? 'ões' : 'ão'} selecionada{newRole.permissions.length !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={createRole}
+                    className="mt-4 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition shadow-md"
+                  >
+                    Criar Grupo
+                  </button>
+                </div>
+
+                {/* Roles Table */}
+                <div>
+                  <h3 className="font-semibold text-gray-800 mb-4">Grupos Cadastrados ({roles.length})</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b-2 border-gray-200 bg-gray-50">
+                          <th className="p-3 text-left text-sm font-semibold text-gray-700">ID</th>
+                          <th className="p-3 text-left text-sm font-semibold text-gray-700">Nome</th>
+                          <th className="p-3 text-left text-sm font-semibold text-gray-700">Descrição</th>
+                          <th className="p-3 text-left text-sm font-semibold text-gray-700">Permissões</th>
+                          <th className="p-3 text-left text-sm font-semibold text-gray-700">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {roles.map(role => (
+                          <tr key={role.id} className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="p-3 text-sm text-gray-600">{role.id}</td>
+                            <td className="p-3 text-sm text-gray-800 font-medium">{role.name}</td>
+                            <td className="p-3 text-sm text-gray-600">{role.description}</td>
+                            <td className="p-3">
+                              <div className="flex flex-wrap gap-1">
+                                {role.permissions.split(',').filter(p => p.trim()).map((permId, idx) => {
+                                  const permission = availablePermissions.find(p => p.id === permId.trim());
+                                  return (
+                                    <span 
+                                      key={idx} 
+                                      className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-700"
+                                      title={permission?.description || permId.trim()}
+                                    >
+                                      {permission?.label || permId.trim()}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <button
+                                onClick={() => deleteRole(role.id)}
+                                className="text-red-600 hover:text-red-800 transition"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         );
 
