@@ -101,6 +101,7 @@ export default function App() {
   const [newRole, setNewRole] = useState({ name: '', description: '', permissions: [] as string[] });
   const [editingUser, setEditingUser] = useState<EditableUser | null>(null);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
+  const [editingScheduledMessage, setEditingScheduledMessage] = useState<number | null>(null);
   const itemsPerPage = 10;
 
   const showNotification = (type: 'success' | 'error', message: string) => {
@@ -520,19 +521,66 @@ export default function App() {
 
   const scheduleMessage = async () => {
     try {
-      await fetch('/api/schedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, scheduledAt }),
-      });
-      showNotification('success', 'Mensagem agendada com sucesso!');
+      if (editingScheduledMessage) {
+        // Editando uma mensagem existente
+        await fetch(`/api/scheduled-messages/${editingScheduledMessage}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, scheduledAt }),
+        });
+        showNotification('success', 'Mensagem atualizada com sucesso!');
+        setEditingScheduledMessage(null);
+      } else {
+        // Criando uma nova mensagem
+        await fetch('/api/schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, scheduledAt }),
+        });
+        showNotification('success', 'Mensagem agendada com sucesso!');
+      }
       fetchScheduledMessages();
       setScheduledName('');
       setScheduledNumber('');
       setScheduledMessage('');
       setScheduledAt('');
     } catch {
-      showNotification('error', 'Falha ao agendar mensagem.');
+      showNotification('error', editingScheduledMessage ? 'Falha ao atualizar mensagem.' : 'Falha ao agendar mensagem.');
+    }
+  };
+
+  const editScheduledMessage = (msg: ScheduledMessage) => {
+    setScheduledName(msg.name || '');
+    setScheduledNumber(msg.number);
+    setScheduledMessage(msg.message);
+    setScheduledAt(msg.scheduled_at);
+    setEditingScheduledMessage(msg.id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEditScheduledMessage = () => {
+    setEditingScheduledMessage(null);
+    setScheduledName('');
+    setScheduledNumber('');
+    setScheduledMessage('');
+    setScheduledAt('');
+  };
+
+  const deleteScheduledMessage = async (id: number) => {
+    if (!confirm('Tem certeza que deseja excluir este agendamento?')) {
+      return;
+    }
+    try {
+      await fetch(`/api/scheduled-messages/${id}`, {
+        method: 'DELETE',
+      });
+      showNotification('success', 'Agendamento excluído com sucesso!');
+      fetchScheduledMessages();
+      if (editingScheduledMessage === id) {
+        cancelEditScheduledMessage();
+      }
+    } catch {
+      showNotification('error', 'Falha ao excluir agendamento.');
     }
   };
 
@@ -758,7 +806,9 @@ export default function App() {
           <div className="bg-white rounded-xl shadow-lg p-8 max-w-2xl mx-auto">
             <div className="flex items-center gap-3 mb-6">
               <Clock className="w-6 h-6 text-blue-600" />
-              <h2 className="text-2xl font-bold text-gray-800">Agendar Mensagem</h2>
+              <h2 className="text-2xl font-bold text-gray-800">
+                {editingScheduledMessage ? 'Editar Mensagem Agendada' : 'Agendar Mensagem'}
+              </h2>
             </div>
             <div className="space-y-4">
               <div>
@@ -797,13 +847,23 @@ export default function App() {
                   onChange={e => setScheduledAt(e.target.value)} 
                 />
               </div>
-              <button 
-                className="w-full p-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition shadow-md hover:shadow-lg text-lg" 
-                onClick={scheduleMessage}
-              >
-                <Clock className="w-5 h-5" />
-                Agendar Mensagem
-              </button>
+              <div className="flex gap-3">
+                <button 
+                  className="flex-1 p-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition shadow-md hover:shadow-lg text-lg" 
+                  onClick={scheduleMessage}
+                >
+                  <Clock className="w-5 h-5" />
+                  {editingScheduledMessage ? 'Atualizar Mensagem' : 'Agendar Mensagem'}
+                </button>
+                {editingScheduledMessage && (
+                  <button 
+                    className="p-4 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition shadow-md hover:shadow-lg" 
+                    onClick={cancelEditScheduledMessage}
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
             </div>
             
             {scheduledMessages.length > 0 && (
@@ -818,6 +878,7 @@ export default function App() {
                         <th className="p-3 text-left text-sm font-semibold text-gray-700">Mensagem</th>
                         <th className="p-3 text-left text-sm font-semibold text-gray-700">Hora Agendada</th>
                         <th className="p-3 text-left text-sm font-semibold text-gray-700">Status</th>
+                        <th className="p-3 text-center text-sm font-semibold text-gray-700">Ações</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -844,6 +905,24 @@ export default function App() {
                             }`}>
                               {msg.status}
                             </span>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => editScheduledMessage(msg)}
+                                className="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition shadow-sm"
+                                title="Editar"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => deleteScheduledMessage(msg.id)}
+                                className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition shadow-sm"
+                                title="Excluir"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

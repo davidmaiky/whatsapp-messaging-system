@@ -228,6 +228,40 @@ app.get("/api/scheduled-messages", (req, res) => {
   res.json(messages);
 });
 
+app.put("/api/scheduled-messages/:id", (req, res) => {
+  const { id } = req.params;
+  const { name, number, message, scheduledAt } = req.body;
+  console.log(`Updating scheduled message ${id}. Name: ${name}, Number: ${number}, Message: ${message}, ScheduledAt: ${scheduledAt}`);
+  
+  if (!message || message.trim() === "") {
+    console.error("Attempted to update message with empty text");
+    return res.status(400).json({ error: "Message is required" });
+  }
+  
+  const stmt = db.prepare("UPDATE scheduled_messages SET name = ?, number = ?, message = ?, scheduled_at = ? WHERE id = ?");
+  const result = stmt.run(name, number, message, scheduledAt, id);
+  
+  if (result.changes === 0) {
+    return res.status(404).json({ error: "Scheduled message not found" });
+  }
+  
+  res.json({ status: "updated" });
+});
+
+app.delete("/api/scheduled-messages/:id", (req, res) => {
+  const { id } = req.params;
+  console.log(`Deleting scheduled message ${id}`);
+  
+  const stmt = db.prepare("DELETE FROM scheduled_messages WHERE id = ?");
+  const result = stmt.run(id);
+  
+  if (result.changes === 0) {
+    return res.status(404).json({ error: "Scheduled message not found" });
+  }
+  
+  res.json({ status: "deleted" });
+});
+
 // Authentication route
 app.post("/api/login", (req, res) => {
   try {
