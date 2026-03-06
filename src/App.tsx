@@ -141,6 +141,10 @@ export default function App() {
   const [contactName, setContactName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
+  const [contactSearchSendNow, setContactSearchSendNow] = useState('');
+  const [contactSearchSchedule, setContactSearchSchedule] = useState('');
+  const [showContactListSendNow, setShowContactListSendNow] = useState(false);
+  const [showContactListSchedule, setShowContactListSchedule] = useState(false);
   const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'user' });
   const [newRole, setNewRole] = useState({ name: '', description: '', permissions: [] as string[] });
   const [editingUser, setEditingUser] = useState<EditableUser | null>(null);
@@ -1108,18 +1112,58 @@ Pedro Oliveira, 5511977777777`;
                 <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Detalhes do Destinatário</h3>
                 <div>
                   <label className="text-sm font-medium text-slate-700 block mb-2">Selecionar contato salvo</label>
-                  <select
-                    className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
-                    onChange={(e) => fillSendNowWithContact(e.target.value)}
-                    defaultValue=""
-                  >
-                    <option value="">Escolha um contato...</option>
-                    {contacts.map((contact) => (
-                      <option key={contact.id} value={contact.id}>
-                        {(contact.name || 'Sem nome')} - {contact.number}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Digite o nome ou número do contato..."
+                        className="w-full pl-10 pr-4 py-2 rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                        value={contactSearchSendNow}
+                        onChange={(e) => {
+                          setContactSearchSendNow(e.target.value);
+                          setShowContactListSendNow(true);
+                        }}
+                        onFocus={() => setShowContactListSendNow(true)}
+                      />
+                    </div>
+                    {showContactListSendNow && contactSearchSendNow && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                        {contacts
+                          .filter((contact) => {
+                            const searchLower = contactSearchSendNow.toLowerCase();
+                            const name = (contact.name || '').toLowerCase();
+                            const number = contact.number.toLowerCase();
+                            return name.includes(searchLower) || number.includes(searchLower);
+                          })
+                          .map((contact) => (
+                            <button
+                              key={contact.id}
+                              type="button"
+                              className="w-full text-left px-4 py-3 hover:bg-emerald-50 border-b border-slate-100 last:border-b-0 transition"
+                              onClick={() => {
+                                fillSendNowWithContact(contact.id.toString());
+                                setContactSearchSendNow('');
+                                setShowContactListSendNow(false);
+                              }}
+                            >
+                              <div className="font-medium text-slate-900 text-sm">{contact.name || 'Sem nome'}</div>
+                              <div className="text-xs text-slate-500 font-mono">{contact.number}</div>
+                            </button>
+                          ))}
+                        {contacts.filter((contact) => {
+                          const searchLower = contactSearchSendNow.toLowerCase();
+                          const name = (contact.name || '').toLowerCase();
+                          const number = contact.number.toLowerCase();
+                          return name.includes(searchLower) || number.includes(searchLower);
+                        }).length === 0 && (
+                          <div className="px-4 py-3 text-sm text-slate-500 text-center">
+                            Nenhum contato encontrado
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -1614,25 +1658,67 @@ Pedro Oliveira, 5511977777777`;
                   <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Detalhes do Destinatário</h3>
                   <div>
                     <label className="text-sm font-medium text-slate-700 block mb-2">Selecionar contato salvo</label>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <select
-                        className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
-                        onChange={(e) => fillScheduleWithContact(e.target.value)}
-                        defaultValue=""
-                      >
-                        <option value="">Escolha um contato...</option>
-                        {contacts.map((contact) => (
-                          <option key={contact.id} value={contact.id}>
-                            {(contact.name || 'Sem nome')} - {contact.number}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => setActivePage('contacts')}
-                        className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition whitespace-nowrap"
-                      >
-                        Gerenciar contatos
-                      </button>
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="Digite o nome ou número do contato..."
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                            value={contactSearchSchedule}
+                            onChange={(e) => {
+                              setContactSearchSchedule(e.target.value);
+                              setShowContactListSchedule(true);
+                            }}
+                            onFocus={() => setShowContactListSchedule(true)}
+                          />
+                        </div>
+                        {showContactListSchedule && contactSearchSchedule && (
+                          <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                            {contacts
+                              .filter((contact) => {
+                                const searchLower = contactSearchSchedule.toLowerCase();
+                                const name = (contact.name || '').toLowerCase();
+                                const number = contact.number.toLowerCase();
+                                return name.includes(searchLower) || number.includes(searchLower);
+                              })
+                              .map((contact) => (
+                                <button
+                                  key={contact.id}
+                                  type="button"
+                                  className="w-full text-left px-4 py-3 hover:bg-emerald-50 border-b border-slate-100 last:border-b-0 transition"
+                                  onClick={() => {
+                                    fillScheduleWithContact(contact.id.toString());
+                                    setContactSearchSchedule('');
+                                    setShowContactListSchedule(false);
+                                  }}
+                                >
+                                  <div className="font-medium text-slate-900 text-sm">{contact.name || 'Sem nome'}</div>
+                                  <div className="text-xs text-slate-500 font-mono">{contact.number}</div>
+                                </button>
+                              ))}
+                            {contacts.filter((contact) => {
+                              const searchLower = contactSearchSchedule.toLowerCase();
+                              const name = (contact.name || '').toLowerCase();
+                              const number = contact.number.toLowerCase();
+                              return name.includes(searchLower) || number.includes(searchLower);
+                            }).length === 0 && (
+                              <div className="px-4 py-3 text-sm text-slate-500 text-center">
+                                Nenhum contato encontrado
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <button
+                          onClick={() => setActivePage('contacts')}
+                          className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition whitespace-nowrap"
+                        >
+                          Gerenciar contatos
+                        </button>
+                      </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
