@@ -32,6 +32,10 @@ interface User {
   created_at: string;
 }
 
+interface EditableUser extends User {
+  password?: string;
+}
+
 interface Role {
   id: number;
   name: string;
@@ -82,7 +86,7 @@ export default function App() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'user' });
   const [newRole, setNewRole] = useState({ name: '', description: '', permissions: [] as string[] });
-  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editingUser, setEditingUser] = useState<EditableUser | null>(null);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const itemsPerPage = 10;
 
@@ -204,7 +208,7 @@ export default function App() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/users');
+      const res = await fetch('/api/users', { cache: 'no-store' });
       if (!res.ok) {
         console.error('Error fetching users:', res.status);
         return;
@@ -281,6 +285,69 @@ export default function App() {
     }
   };
 
+  const updateUser = async () => {
+    if (!editingUser) return;
+    if (!editingUser.username || !editingUser.email) {
+      showNotification('error', 'Preencha todos os campos obrigatórios');
+      return;
+    }
+    try {
+      // Prepare data to send - include password only if it's set
+      const userData: {
+        username: string;
+        email: string;
+        role: string;
+        password?: string;
+      } = {
+        username: editingUser.username,
+        email: editingUser.email,
+        role: editingUser.role
+      };
+      
+      // Add password if it's been changed
+      if (editingUser.password && editingUser.password.trim() !== '') {
+        userData.password = editingUser.password;
+      }
+      
+      console.log('Updating user with data:', { ...userData, password: userData.password ? '***' : undefined });
+      
+      const response = await fetch(`/api/users/${editingUser.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData),
+      });
+      
+      const text = await response.text();
+      console.log('Update response:', text);
+      
+      let data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (e) {
+        showNotification('error', 'Erro ao processar resposta do servidor');
+        return;
+      }
+      
+      if (!response.ok) {
+        showNotification('error', data.error || 'Erro ao atualizar usuário');
+        return;
+      }
+
+      if (data?.user) {
+        setUsers(prevUsers =>
+          prevUsers.map(user => (user.id === data.user.id ? data.user : user))
+        );
+      }
+
+      showNotification('success', 'Usuário atualizado com sucesso!');
+      setEditingUser(null);
+      fetchUsers();
+    } catch (error: any) {
+      console.error('Error updating user:', error);
+      showNotification('error', error.message || 'Erro ao atualizar usuário');
+    }
+  };
+
   const createRole = async () => {
     if (!newRole.name) {
       showNotification('error', 'Nome do grupo é obrigatório');
@@ -336,6 +403,18 @@ export default function App() {
     }));
   };
 
+  const toggleEditPermission = (permissionId: string) => {
+    if (!editingRole) return;
+    const currentPerms = editingRole.permissions.split(',').filter(p => p.trim());
+    const newPerms = currentPerms.includes(permissionId)
+      ? currentPerms.filter(p => p !== permissionId)
+      : [...currentPerms, permissionId];
+    setEditingRole({
+      ...editingRole,
+      permissions: newPerms.join(',')
+    });
+  };
+
   const deleteRole = async (id: number) => {
     if (!confirm('Tem certeza que deseja excluir este grupo?')) return;
     try {
@@ -344,6 +423,44 @@ export default function App() {
       fetchRoles();
     } catch {
       showNotification('error', 'Erro ao excluir grupo');
+    }
+  };
+
+  const updateRole = async () => {
+    if (!editingRole) return;
+    if (!editingRole.name) {
+      showNotification('error', 'Nome do grupo é obrigatório');
+      return;
+    }
+    try {
+      const response = await fetch(`/api/roles/${editingRole.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editingRole.name,
+          description: editingRole.description,
+          permissions: editingRole.permissions
+        }),
+      });
+      
+      const text = await response.text();
+      let data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (e) {
+        showNotification('error', 'Erro ao processar resposta do servidor');
+        return;
+      }
+      
+      if (!response.ok) {
+        showNotification('error', data.error || 'Erro ao atualizar grupo');
+        return;
+      }
+      showNotification('success', 'Grupo atualizado com sucesso!');
+      setEditingRole(null);
+      fetchRoles();
+    } catch (error: any) {
+      showNotification('error', error.message || 'Erro ao atualizar grupo');
     }
   };
 
@@ -930,6 +1047,87 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* Edit User Modal */}
+                {editingUser && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                      <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                        <h3 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
+                          <Edit2 className="w-5 h-5 text-blue-600" />
+                          Editar Usuário
+                        </h3>
+                        <button 
+                          onClick={() => setEditingUser(null)}
+                          className="text-gray-400 hover:text-gray-600 transition"
+                        >
+                          <X className="w-6 h-6" />
+                        </button>
+                      </div>
+                      <div className="p-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Nome de Usuário</label>
+                            <input
+                              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              value={editingUser.username}
+                              onChange={e => setEditingUser({ ...editingUser, username: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                            <input
+                              type="email"
+                              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              value={editingUser.email}
+                              onChange={e => setEditingUser({ ...editingUser, email: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Nova Senha <span className="text-xs text-gray-500">(deixe vazio para não alterar)</span>
+                            </label>
+                            <input
+                              type="password"
+                              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              value={editingUser.password || ''}
+                              onChange={e => setEditingUser({ ...editingUser, password: e.target.value })}
+                              placeholder="••••••••"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Grupo</label>
+                            <select
+                              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              value={editingUser.role}
+                              onChange={e => setEditingUser({ ...editingUser, role: e.target.value })}
+                            >
+                              <option value="user">Usuário</option>
+                              <option value="admin">Administrador</option>
+                              {roles.map(role => (
+                                <option key={role.id} value={role.name}>{role.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="flex gap-3 mt-6">
+                          <button
+                            onClick={updateUser}
+                            className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition shadow-md"
+                          >
+                            Salvar Alterações
+                          </button>
+                          <button
+                            onClick={() => setEditingUser(null)}
+                            className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium transition"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Users Table */}
                 <div>
                   <h3 className="font-semibold text-gray-800 mb-4">Usuários Cadastrados ({users.length})</h3>
@@ -962,12 +1160,22 @@ export default function App() {
                               {new Date(user.created_at).toLocaleDateString('pt-BR')}
                             </td>
                             <td className="p-3">
-                              <button
-                                onClick={() => deleteUser(user.id)}
-                                className="text-red-600 hover:text-red-800 transition"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setEditingUser({ ...user, password: '' })}
+                                  className="text-blue-600 hover:text-blue-800 transition"
+                                  title="Editar usuário"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => deleteUser(user.id)}
+                                  className="text-red-600 hover:text-red-800 transition"
+                                  title="Excluir usuário"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1041,6 +1249,90 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* Edit Role Modal */}
+                {editingRole && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                      <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                        <h3 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
+                          <Edit2 className="w-5 h-5 text-blue-600" />
+                          Editar Grupo de Permissões
+                        </h3>
+                        <button 
+                          onClick={() => setEditingRole(null)}
+                          className="text-gray-400 hover:text-gray-600 transition"
+                        >
+                          <X className="w-6 h-6" />
+                        </button>
+                      </div>
+                      <div className="p-6">
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Grupo</label>
+                            <input
+                              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              value={editingRole.name}
+                              onChange={e => setEditingRole({ ...editingRole, name: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
+                            <input
+                              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              value={editingRole.description}
+                              onChange={e => setEditingRole({ ...editingRole, description: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-3">Permissões</label>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {availablePermissions.map(permission => {
+                                const currentPerms = editingRole.permissions.split(',').filter(p => p.trim());
+                                return (
+                                  <div
+                                    key={permission.id}
+                                    className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg hover:bg-blue-50 transition cursor-pointer"
+                                    onClick={() => toggleEditPermission(permission.id)}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={currentPerms.includes(permission.id)}
+                                      onChange={() => toggleEditPermission(permission.id)}
+                                      className="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                    <div className="flex-1">
+                                      <p className="text-sm font-medium text-gray-800">{permission.label}</p>
+                                      <p className="text-xs text-gray-500 mt-1">{permission.description}</p>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-2">
+                              {editingRole.permissions.split(',').filter(p => p.trim()).length} permiss{editingRole.permissions.split(',').filter(p => p.trim()).length !== 1 ? 'ões' : 'ão'} selecionada{editingRole.permissions.split(',').filter(p => p.trim()).length !== 1 ? 's' : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-3 mt-6">
+                          <button
+                            onClick={updateRole}
+                            className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition shadow-md"
+                          >
+                            Salvar Alterações
+                          </button>
+                          <button
+                            onClick={() => setEditingRole(null)}
+                            className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium transition"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Roles Table */}
                 <div>
                   <h3 className="font-semibold text-gray-800 mb-4">Grupos Cadastrados ({roles.length})</h3>
@@ -1078,12 +1370,22 @@ export default function App() {
                               </div>
                             </td>
                             <td className="p-3">
-                              <button
-                                onClick={() => deleteRole(role.id)}
-                                className="text-red-600 hover:text-red-800 transition"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setEditingRole(role)}
+                                  className="text-blue-600 hover:text-blue-800 transition"
+                                  title="Editar grupo"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => deleteRole(role.id)}
+                                  className="text-red-600 hover:text-red-800 transition"
+                                  title="Excluir grupo"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}

@@ -393,6 +393,52 @@ app.post("/api/users", (req, res) => {
   }
 });
 
+app.put("/api/users/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const { username, email, password, role } = req.body;
+    console.log('PUT /api/users/:id - Updating user:', { id, username, email, role, hasPassword: !!password });
+    console.log('Request body:', req.body);
+    
+    if (!username || !email) {
+      console.log('Validation failed: missing required fields');
+      return res.status(400).json({ error: 'Username e email são obrigatórios' });
+    }
+    
+    // Check if user exists
+    const existingUser = db.prepare("SELECT * FROM users WHERE id = ?").get(id);
+    if (!existingUser) {
+      console.log('User not found:', id);
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+    
+    console.log('Existing user found:', { id: existingUser.id, username: existingUser.username, email: existingUser.email });
+    
+    // Update user (only update password if provided)
+    if (password && password.trim() !== '') {
+      console.log('Updating with new password');
+      db.prepare("UPDATE users SET username = ?, email = ?, password = ?, role = ? WHERE id = ?")
+        .run(username, email, password, role || 'user', id);
+    } else {
+      console.log('Updating without password change');
+      db.prepare("UPDATE users SET username = ?, email = ?, role = ? WHERE id = ?")
+        .run(username, email, role || 'user', id);
+    }
+    
+    console.log('User updated successfully:', id);
+    
+    // Return updated user data
+    const updatedUser = db.prepare("SELECT id, username, email, role, created_at FROM users WHERE id = ?").get(id);
+    console.log('Updated user data:', updatedUser);
+    
+    return res.json({ status: "updated", user: updatedUser });
+  } catch (error: any) {
+    console.error('Error updating user:', error.message);
+    console.error('Stack:', error.stack);
+    return res.status(400).json({ error: error.message });
+  }
+});
+
 app.delete("/api/users/:id", (req, res) => {
   try {
     const { id } = req.params;
@@ -444,6 +490,35 @@ app.post("/api/roles", (req, res) => {
   }
 });
 
+app.put("/api/roles/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, description, permissions } = req.body;
+    console.log('PUT /api/roles/:id - Updating role:', { id, name, description, permissions });
+    
+    if (!name) {
+      console.log('Validation failed: name is required');
+      return res.status(400).json({ error: 'Nome do grupo é obrigatório' });
+    }
+    
+    // Check if role exists
+    const existingRole = db.prepare("SELECT * FROM roles WHERE id = ?").get(id);
+    if (!existingRole) {
+      return res.status(404).json({ error: 'Grupo não encontrado' });
+    }
+    
+    // Update role
+    db.prepare("UPDATE roles SET name = ?, description = ?, permissions = ? WHERE id = ?")
+      .run(name, description || '', permissions || '', id);
+    
+    console.log('Role updated successfully:', id);
+    return res.json({ status: "updated" });
+  } catch (error: any) {
+    console.error('Error updating role:', error.message);
+    return res.status(400).json({ error: error.message });
+  }
+});
+
 app.delete("/api/roles/:id", (req, res) => {
   try {
     const { id } = req.params;
@@ -484,14 +559,17 @@ async function startServer() {
   const distPath = path.join(__dirname, 'dist');
   const hasDistFolder = existsSync(distPath);
   
-  // Use production mode only if dist folder exists
-  const isProduction = process.env.NODE_ENV === "production" && hasDistFolder;
+  // Prefer serving built frontend when dist exists (more stable in this environment)
+  const isProduction = hasDistFolder || process.env.NODE_ENV === "production";
 
   if (!isProduction) {
     console.log('Starting in development mode with Vite...');
     console.log('Dist folder exists:', hasDistFolder);
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: ['maikysoft-uatizapi.iomi94.easypanel.host'],
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
