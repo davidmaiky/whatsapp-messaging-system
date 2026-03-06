@@ -249,6 +249,49 @@ app.post("/api/login", (req, res) => {
   }
 });
 
+// Diagnostic endpoint
+app.get("/api/system/check", (req, res) => {
+  try {
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+    const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get() as any;
+    const users = db.prepare("SELECT id, username, email, role FROM users").all();
+    
+    return res.json({
+      status: 'ok',
+      tables: tables,
+      userCount: userCount.count,
+      users: users
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Create admin user endpoint
+app.post("/api/system/create-admin", (req, res) => {
+  try {
+    // Check if admin already exists
+    const existingAdmin = db.prepare("SELECT * FROM users WHERE email = ?").get('admin@admin.com');
+    if (existingAdmin) {
+      return res.json({ message: 'Admin user already exists', user: existingAdmin });
+    }
+    
+    // Create admin user
+    db.prepare("INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)").run(
+      'admin',
+      'admin@admin.com',
+      'admin123',
+      'admin'
+    );
+    
+    const newAdmin = db.prepare("SELECT id, username, email, role FROM users WHERE email = ?").get('admin@admin.com');
+    return res.json({ message: 'Admin user created successfully', user: newAdmin });
+  } catch (error: any) {
+    console.error('Error creating admin:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // Users routes
 app.get("/api/users", (req, res) => {
   try {
