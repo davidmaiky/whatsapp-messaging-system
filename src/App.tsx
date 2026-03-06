@@ -439,6 +439,13 @@ export default function App() {
     setNumber(selectedContact.number);
   };
 
+  const fillScheduleWithContact = (contactId: string) => {
+    const selectedContact = contacts.find((contact) => String(contact.id) === contactId);
+    if (!selectedContact) return;
+    setScheduledName(selectedContact.name || '');
+    setScheduledNumber(selectedContact.number);
+  };
+
   const createUser = async () => {
     if (!newUser.username || !newUser.email || !newUser.password) {
       showNotification('error', 'Preencha todos os campos obrigatórios');
@@ -1406,6 +1413,29 @@ export default function App() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="text-sm font-medium text-slate-700 block mb-2">Selecionar contato cadastrado</label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <select
+                        className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                        onChange={(e) => fillScheduleWithContact(e.target.value)}
+                        defaultValue=""
+                      >
+                        <option value="">Escolha um contato...</option>
+                        {contacts.map((contact) => (
+                          <option key={contact.id} value={contact.id}>
+                            {(contact.name || 'Sem nome')} - {contact.number}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => setActivePage('contacts')}
+                        className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition whitespace-nowrap"
+                      >
+                        Gerenciar contatos
+                      </button>
+                    </div>
+                  </div>
                   <div>
                     <label className="text-sm font-medium text-slate-700 block mb-2">Nome</label>
                     <input
@@ -1511,51 +1541,82 @@ export default function App() {
         return (
           <div className="space-y-6">
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-              <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h2 className="text-xl sm:text-2xl font-black text-slate-900">
-                    {editingScheduledMessage ? 'Editar Agendamento' : 'Agendar Campanha'}
-                  </h2>
-                  {editingScheduledMessage && (
-                    <button
-                      className="px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-semibold"
-                      onClick={cancelEditScheduledMessage}
-                    >
-                      Cancelar edição
-                    </button>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium text-slate-700 block mb-2">Nome</label>
-                    <input
-                      className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
-                      value={scheduledName}
-                      onChange={e => setScheduledName(e.target.value)}
-                      placeholder="Nome do contato"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-slate-700 block mb-2">Número</label>
-                    <input
-                      className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm font-mono focus:border-emerald-500 focus:ring-emerald-500"
-                      value={scheduledNumber}
-                      onChange={e => setScheduledNumber(e.target.value)}
-                      placeholder="5511999999999"
-                    />
+              <div className="xl:col-span-2 space-y-6">
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg sm:text-xl font-black text-slate-900 mb-1">
+                        {editingScheduledMessage ? 'Editar Agendamento' : 'Nova Mensagem'}
+                      </h2>
+                      <p className="text-sm text-slate-500">Envio rápido com preview em tempo real.</p>
+                    </div>
+                    {editingScheduledMessage && (
+                      <button
+                        className="px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-semibold"
+                        onClick={cancelEditScheduledMessage}
+                      >
+                        Cancelar edição
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium text-slate-700 block mb-2">Mensagem</label>
+                <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
+                  <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Detalhes do Destinatário</h3>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 block mb-2">Selecionar contato salvo</label>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <select
+                        className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                        onChange={(e) => fillScheduleWithContact(e.target.value)}
+                        defaultValue=""
+                      >
+                        <option value="">Escolha um contato...</option>
+                        {contacts.map((contact) => (
+                          <option key={contact.id} value={contact.id}>
+                            {(contact.name || 'Sem nome')} - {contact.number}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => setActivePage('contacts')}
+                        className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition whitespace-nowrap"
+                      >
+                        Gerenciar contatos
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm font-medium text-slate-700 block mb-2">Nome do contato</label>
+                      <input
+                        className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                        placeholder="Ex: João Silva"
+                        value={scheduledName}
+                        onChange={e => setScheduledName(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-slate-700 block mb-2">Número WhatsApp</label>
+                      <input
+                        className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm font-mono focus:border-emerald-500 focus:ring-emerald-500"
+                        placeholder="5511999999999"
+                        value={scheduledNumber}
+                        onChange={e => setScheduledNumber(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
+                  <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Escrever Mensagem</h3>
                   <textarea
-                    className="w-full min-h-[140px] rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                    className="w-full min-h-[220px] rounded-xl border-slate-200 bg-slate-50 text-sm leading-relaxed focus:border-emerald-500 focus:ring-emerald-500"
+                    placeholder="Digite sua mensagem aqui... use {{name}} para personalizar."
                     value={scheduledMessage}
                     onChange={e => setScheduledMessage(e.target.value)}
-                    placeholder="Mensagem do agendamento"
                   />
-                  <div className="flex flex-wrap gap-3 mt-3">
+                  <div className="flex flex-wrap gap-3">
                     <input
                       ref={scheduledFileInputRef}
                       type="file"
@@ -1567,7 +1628,7 @@ export default function App() {
                       className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold text-slate-700"
                       onClick={() => scheduledFileInputRef.current?.click()}
                     >
-                      + Anexar Imagem / Documento / Vídeo
+                      + Imagem / Documento / Vídeo
                     </button>
                     {scheduledMedia && (
                       <button
@@ -1579,37 +1640,64 @@ export default function App() {
                     )}
                   </div>
                   {scheduledMedia && (
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 font-medium mt-3">
-                      Anexo do agendamento: {scheduledMedia.fileName || 'arquivo'} ({scheduledMedia.type})
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 font-medium">
+                      Anexo: {scheduledMedia.fileName || 'arquivo'} ({scheduledMedia.type})
                     </div>
                   )}
-                </div>
+                </section>
 
-                <div>
-                  <label className="text-sm font-medium text-slate-700 block mb-2">Data e hora</label>
-                  <input
-                    type="datetime-local"
-                    className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
-                    value={scheduledAt}
-                    onChange={e => setScheduledAt(e.target.value)}
-                  />
-                </div>
+                <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
+                  <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400 mb-4">Agendamento de Envio</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium text-slate-700 block mb-2">Data e hora</label>
+                      <input
+                        type="datetime-local"
+                        className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                        value={scheduledAt}
+                        onChange={e => setScheduledAt(e.target.value)}
+                      />
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <p className="font-semibold text-slate-900 text-sm">Agendar para depois</p>
+                      <p className="text-xs text-slate-500 mt-1">Gerencie horários na tela de agendamento.</p>
+                    </div>
+                  </div>
+                </section>
 
                 <button
                   className="w-full h-12 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-bold transition flex items-center justify-center gap-2"
                   onClick={scheduleMessage}
                 >
                   <Clock className="w-4 h-4" />
-                  {editingScheduledMessage ? 'Atualizar Agendamento' : 'Salvar Agendamento'}
+                  Enviar Campanha
                 </button>
               </div>
 
-              <aside className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 h-fit">
-                <h3 className="font-bold text-slate-900 mb-4">Resumo</h3>
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between"><span className="text-slate-500">Fila total</span><span className="font-semibold">{scheduledMessages.length}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Fuso horário</span><span className="font-semibold">{timezone}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Status edição</span><span className="font-semibold">{editingScheduledMessage ? 'Ativa' : 'Nova'}</span></div>
+              <aside className="space-y-4">
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                  <h3 className="font-bold text-slate-800 mb-4">Resumo da Campanha</h3>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between"><span className="text-slate-500">Contato</span><span className="font-semibold">{scheduledName || 'Não definido'}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Número</span><span className="font-semibold">{scheduledNumber || '-'}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Tipo</span><span className="font-semibold">{scheduledMedia ? `Mídia (${scheduledMedia.type})` : 'Texto'}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Agendamento</span><span className="font-semibold">{scheduledAt || 'Não definido'}</span></div>
+                  </div>
+                </div>
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                  <p className="text-xs font-bold tracking-[0.14em] uppercase text-slate-400 mb-4 text-center">Pré-visualização ao Vivo</p>
+                  <div className="max-w-[280px] mx-auto rounded-[2rem] border-[7px] border-slate-800 bg-slate-100 overflow-hidden">
+                    <div className="bg-[#075e54] text-white p-3 text-xs font-semibold">{scheduledName || 'Contato'}</div>
+                    <div className="p-3 min-h-[260px] bg-[#e5ddd5]">
+                      <div className="ml-auto max-w-[85%] bg-[#d9fdd3] rounded-lg rounded-tr-sm px-3 py-2 text-xs leading-relaxed text-slate-800 shadow-sm whitespace-pre-wrap">
+                        {scheduledMessage || 'Sua mensagem vai aparecer aqui.'}
+                      </div>
+                    </div>
+                    <div className="h-12 bg-white px-3 flex items-center justify-between text-slate-400">
+                      <Smartphone className="w-4 h-4" />
+                      <div className="h-2 w-32 rounded-full bg-slate-200" />
+                    </div>
+                  </div>
                 </div>
               </aside>
             </div>
