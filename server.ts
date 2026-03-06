@@ -51,6 +51,12 @@ try {
       permissions TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS contacts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT,
+      number TEXT UNIQUE NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   
   console.log('✓ Database tables created/verified successfully');
@@ -106,6 +112,7 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
 const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE;
 const APP_PERMISSION_IDS = [
   'send-now',
+  'contacts',
   'bulk-send',
   'schedule',
   'view-history',
@@ -212,6 +219,81 @@ app.get("/api/messages", (req, res) => {
 app.post("/api/messages/clear", (req, res) => {
   db.prepare("DELETE FROM messages").run();
   res.json({ status: "cleared" });
+});
+
+app.get('/api/contacts', (req, res) => {
+  try {
+    const contacts = db.prepare('SELECT * FROM contacts ORDER BY name COLLATE NOCASE ASC, created_at DESC').all();
+    return res.json(contacts);
+  } catch (error: any) {
+    console.error('Error fetching contacts:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/contacts', (req, res) => {
+  try {
+    const { name, number } = req.body;
+    const normalizedNumber = String(number || '').replace(/[^0-9]/g, '');
+
+    if (!normalizedNumber) {
+      return res.status(400).json({ error: 'Número é obrigatório' });
+    }
+
+    const stmt = db.prepare('INSERT INTO contacts (name, number) VALUES (?, ?)');
+    const result = stmt.run((name || '').trim() || null, normalizedNumber);
+    return res.status(201).json({ status: 'created', id: result.lastInsertRowid });
+  } catch (error: any) {
+    console.error('Error creating contact:', error.message);
+    if (error.message?.includes('UNIQUE constraint failed: contacts.number')) {
+      return res.status(409).json({ error: 'Este número já está cadastrado' });
+    }
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+app.put('/api/contacts/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, number } = req.body;
+    const normalizedNumber = String(number || '').replace(/[^0-9]/g, '');
+
+    if (!normalizedNumber) {
+      return res.status(400).json({ error: 'Número é obrigatório' });
+    }
+
+    const stmt = db.prepare('UPDATE contacts SET name = ?, number = ? WHERE id = ?');
+    const result = stmt.run((name || '').trim() || null, normalizedNumber, id);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Contato não encontrado' });
+    }
+
+    return res.json({ status: 'updated' });
+  } catch (error: any) {
+    console.error('Error updating contact:', error.message);
+    if (error.message?.includes('UNIQUE constraint failed: contacts.number')) {
+      return res.status(409).json({ error: 'Este número já está cadastrado' });
+    }
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete('/api/contacts/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const stmt = db.prepare('DELETE FROM contacts WHERE id = ?');
+    const result = stmt.run(id);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Contato não encontrado' });
+    }
+
+    return res.json({ status: 'deleted' });
+  } catch (error: any) {
+    console.error('Error deleting contact:', error.message);
+    return res.status(400).json({ error: error.message });
+  }
 });
 
 app.post("/api/send-now", async (req, res) => {

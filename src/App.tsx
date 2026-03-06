@@ -44,6 +44,13 @@ interface Role {
   description: string;
 }
 
+interface Contact {
+  id: number;
+  name?: string;
+  number: string;
+  created_at: string;
+}
+
 interface BulkCampaignStatus {
   isRunning: boolean;
   stopRequested: boolean;
@@ -57,11 +64,12 @@ interface BulkCampaignStatus {
   progress: number;
 }
 
-type Page = 'send-now' | 'bulk-send' | 'schedule' | 'history' | 'settings';
+type Page = 'send-now' | 'contacts' | 'bulk-send' | 'schedule' | 'history' | 'settings';
 type SettingsTab = 'general' | 'users' | 'roles';
 
 const availablePermissions = [
   { id: 'send-now', label: 'Enviar Mensagem Agora', description: 'Permite enviar mensagens individuais imediatamente' },
+  { id: 'contacts', label: 'Gerenciar Contatos', description: 'Permite cadastrar e usar contatos' },
   { id: 'bulk-send', label: 'Envio em Massa', description: 'Permite enviar mensagens para múltiplos contatos' },
   { id: 'schedule', label: 'Agendar Mensagens', description: 'Permite agendar mensagens para envio futuro' },
   { id: 'view-history', label: 'Visualizar Histórico', description: 'Permite visualizar histórico de mensagens' },
@@ -77,6 +85,7 @@ const allPermissionIds = availablePermissions.map((permission) => permission.id)
 
 const pagePermissionMap: Record<Page, PermissionId[]> = {
   'send-now': ['send-now'],
+  'contacts': ['contacts'],
   'bulk-send': ['bulk-send'],
   'schedule': ['schedule'],
   'history': ['view-history'],
@@ -110,6 +119,10 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contactName, setContactName] = useState('');
+  const [contactNumber, setContactNumber] = useState('');
+  const [editingContactId, setEditingContactId] = useState<number | null>(null);
   const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'user' });
   const [newRole, setNewRole] = useState({ name: '', description: '', permissions: [] as string[] });
   const [editingUser, setEditingUser] = useState<EditableUser | null>(null);
@@ -179,6 +192,7 @@ export default function App() {
       fetchSettings();
       fetchUsers();
       fetchRoles();
+      fetchContacts();
       const interval = setInterval(() => {
         fetchMessages();
         fetchScheduledMessages();
@@ -294,6 +308,114 @@ export default function App() {
     } catch (error) {
       console.error('Error fetching roles:', error);
     }
+  };
+
+  const fetchContacts = async () => {
+    try {
+      const res = await fetch('/api/contacts', { cache: 'no-store' });
+      if (!res.ok) {
+        console.error('Error fetching contacts:', res.status);
+        return;
+      }
+      const data = await res.json();
+      setContacts(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Error fetching contacts:', error);
+    }
+  };
+
+  const resetContactForm = () => {
+    setContactName('');
+    setContactNumber('');
+    setEditingContactId(null);
+  };
+
+  const saveContact = async () => {
+    if (!contactNumber.trim()) {
+      showNotification('error', 'Número do contato é obrigatório');
+      return;
+    }
+
+    const payload = {
+      name: contactName.trim(),
+      number: contactNumber.trim(),
+    };
+
+    try {
+      const url = editingContactId ? `/api/contacts/${editingContactId}` : '/api/contacts';
+      const method = editingContactId ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        showNotification('error', data.error || 'Erro ao salvar contato');
+        return;
+      }
+
+      showNotification('success', editingContactId ? 'Contato atualizado com sucesso!' : 'Contato criado com sucesso!');
+      resetContactForm();
+      fetchContacts();
+    } catch {
+      showNotification('error', 'Erro ao salvar contato');
+    }
+  };
+
+  const editContact = (contact: Contact) => {
+    setEditingContactId(contact.id);
+    setContactName(contact.name || '');
+    setContactNumber(contact.number);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const deleteContact = async (id: number) => {
+    if (!confirm('Tem certeza que deseja excluir este contato?')) return;
+
+    try {
+      const response = await fetch(`/api/contacts/${id}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        showNotification('error', data.error || 'Erro ao excluir contato');
+        return;
+      }
+
+      showNotification('success', 'Contato excluído com sucesso!');
+      fetchContacts();
+
+      if (editingContactId === id) {
+        resetContactForm();
+      }
+    } catch {
+      showNotification('error', 'Erro ao excluir contato');
+    }
+  };
+
+  const loadContactsForBulk = () => {
+    if (contacts.length === 0) {
+      showNotification('error', 'Nenhum contato cadastrado para carregar');
+      return;
+    }
+
+    const contactEntries = contacts.map((contact) => {
+      const safeName = (contact.name || '').trim();
+      return safeName ? `${safeName};${contact.number}` : contact.number;
+    });
+
+    setBulkNumbers(contactEntries);
+    showNotification('success', `${contactEntries.length} contatos carregados da agenda`);
+  };
+
+  const fillSendNowWithContact = (contactId: string) => {
+    const selectedContact = contacts.find((contact) => String(contact.id) === contactId);
+    if (!selectedContact) return;
+    setName(selectedContact.name || '');
+    setNumber(selectedContact.number);
   };
 
   const createUser = async () => {
@@ -728,6 +850,7 @@ export default function App() {
 
   const menuItems = [
     { id: 'send-now' as Page, icon: Send, label: 'Nova Mensagem', color: 'text-emerald-600', description: 'Compositor individual' },
+    { id: 'contacts' as Page, icon: UserPlus, label: 'Contatos', color: 'text-emerald-600', description: 'Agenda para envios' },
     { id: 'bulk-send' as Page, icon: Users, label: 'Campanhas', color: 'text-emerald-600', description: 'Envio em massa' },
     { id: 'schedule' as Page, icon: Clock, label: 'Agendamentos', color: 'text-emerald-600', description: 'Fila de envio' },
     { id: 'history' as Page, icon: History, label: 'Histórico', color: 'text-slate-600', description: 'Mensagens enviadas' },
@@ -792,6 +915,21 @@ export default function App() {
 
               <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
                 <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Recipient Details</h3>
+                <div>
+                  <label className="text-sm font-medium text-slate-700 block mb-2">Selecionar contato salvo</label>
+                  <select
+                    className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                    onChange={(e) => fillSendNowWithContact(e.target.value)}
+                    defaultValue=""
+                  >
+                    <option value="">Escolha um contato...</option>
+                    {contacts.map((contact) => (
+                      <option key={contact.id} value={contact.id}>
+                        {(contact.name || 'Sem nome')} - {contact.number}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-slate-700 block mb-2">Nome do contato</label>
@@ -916,12 +1054,20 @@ export default function App() {
 
                   <div>
                     <label className="text-sm font-medium text-slate-700 block mb-2">Selecionar lista existente</label>
-                    <select className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500">
-                      <option>Escolha um grupo...</option>
-                      <option>Clientes recorrentes</option>
-                      <option>Leads qualificados</option>
-                      <option>Carrinho abandonado</option>
-                    </select>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <button
+                        onClick={loadContactsForBulk}
+                        className="px-4 py-2 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-sm font-semibold transition"
+                      >
+                        Carregar contatos cadastrados ({contacts.length})
+                      </button>
+                      <button
+                        onClick={() => setActivePage('contacts')}
+                        className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition"
+                      >
+                        Gerenciar contatos
+                      </button>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -1051,6 +1197,127 @@ export default function App() {
                 </div>
               </div>
             </aside>
+          </div>
+        );
+
+      case 'contacts':
+        return (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="text-xl sm:text-2xl font-black text-slate-900">
+                    {editingContactId ? 'Editar Contato' : 'Novo Contato'}
+                  </h2>
+                  {editingContactId && (
+                    <button
+                      className="px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-semibold"
+                      onClick={resetContactForm}
+                    >
+                      Cancelar edição
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 block mb-2">Nome</label>
+                    <input
+                      className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                      value={contactName}
+                      onChange={e => setContactName(e.target.value)}
+                      placeholder="Nome do contato"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 block mb-2">Número WhatsApp</label>
+                    <input
+                      className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm font-mono focus:border-emerald-500 focus:ring-emerald-500"
+                      value={contactNumber}
+                      onChange={e => setContactNumber(e.target.value)}
+                      placeholder="5511999999999"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  className="w-full h-12 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-bold transition flex items-center justify-center gap-2"
+                  onClick={saveContact}
+                >
+                  <UserPlus className="w-4 h-4" />
+                  {editingContactId ? 'Atualizar Contato' : 'Salvar Contato'}
+                </button>
+              </div>
+
+              <aside className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 h-fit">
+                <h3 className="font-bold text-slate-900 mb-4">Resumo</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between"><span className="text-slate-500">Total de contatos</span><span className="font-semibold">{contacts.length}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Uso rápido</span><span className="font-semibold">Nova Mensagem</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Uso em massa</span><span className="font-semibold">Campanhas</span></div>
+                </div>
+              </aside>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
+              <h3 className="font-semibold text-slate-800 mb-4 text-lg">Contatos Cadastrados ({contacts.length})</h3>
+              <div className="overflow-x-auto -mx-4 sm:mx-0">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50">
+                      <th className="p-3 text-left text-xs sm:text-sm font-semibold text-slate-700">Nome</th>
+                      <th className="p-3 text-left text-xs sm:text-sm font-semibold text-slate-700">Número</th>
+                      <th className="p-3 text-left text-xs sm:text-sm font-semibold text-slate-700">Criado em</th>
+                      <th className="p-3 text-center text-xs sm:text-sm font-semibold text-slate-700">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {contacts.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="p-4 text-center text-sm text-slate-500">
+                          Nenhum contato cadastrado.
+                        </td>
+                      </tr>
+                    ) : (
+                      contacts.map(contact => (
+                        <tr key={contact.id} className="border-b border-slate-100 hover:bg-slate-50 transition">
+                          <td className="p-3 text-sm text-slate-700">{contact.name || '-'}</td>
+                          <td className="p-3 text-sm text-slate-700 font-mono">{contact.number}</td>
+                          <td className="p-3 text-sm text-slate-500">
+                            {new Date(contact.created_at.includes('Z') || contact.created_at.includes('+') ? contact.created_at : contact.created_at + 'Z').toLocaleString('pt-BR', {
+                              timeZone: timezone,
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => editContact(contact)}
+                                className="p-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg transition shadow-sm"
+                                title="Editar"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => deleteContact(contact.id)}
+                                className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition shadow-sm"
+                                title="Excluir"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         );
 
