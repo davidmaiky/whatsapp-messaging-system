@@ -812,10 +812,59 @@ export default function App() {
       const reader = new FileReader();
       reader.onload = (e) => {
         const text = e.target?.result as string;
-        setBulkNumbers(text.split('\n').map(n => n.trim()).filter(n => n));
+        let lines = text.split('\n').map(n => n.trim()).filter(n => n);
+        
+        // Ignorar primeira linha se for cabeçalho (contém palavras como "Nome" ou "Telefone")
+        if (lines.length > 0 && lines[0].toLowerCase().includes('nome') && lines[0].toLowerCase().includes('telefone')) {
+          lines = lines.slice(1);
+        }
+        
+        // Converter formato "Nome,Telefone" ou "Nome;Telefone" para "Nome;Telefone"
+        const processedNumbers = lines.map(line => {
+          let separator = ',';
+          
+          // Detectar o separador usado
+          if (line.includes(';')) {
+            separator = ';';
+          } else if (!line.includes(',')) {
+            // Se não tem vírgula nem ponto e vírgula, é só o número
+            return line.trim();
+          }
+          
+          // Separar nome e telefone
+          const parts = line.split(separator);
+          if (parts.length >= 2) {
+            const name = parts[0].trim();
+            const phone = parts[1].trim();
+            return `${name};${phone}`;
+          }
+          
+          return line.trim();
+        });
+        
+        setBulkNumbers(processedNumbers);
       };
       reader.readAsText(file);
     }
+  };
+
+  const downloadModeloTXT = () => {
+    // Criar conteúdo do modelo TXT
+    const conteudo = `Nome, Telefone
+João Silva, 5511999999999
+Maria Santos, 5511988888888
+Pedro Oliveira, 5511977777777`;
+    
+    // Criar blob e fazer download
+    const blob = new Blob([conteudo], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'modelo_contatos.txt';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
 
   const scheduleMessage = async () => {
@@ -1199,14 +1248,14 @@ export default function App() {
               <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center justify-between">
                   <h3 className="font-bold text-slate-900">1. Selecionar Contatos Alvo</h3>
-                  <button className="text-emerald-500 text-sm font-semibold">Baixar Modelo CSV</button>
+                  <button onClick={downloadModeloTXT} className="text-emerald-500 text-sm font-semibold">Baixar Modelo TXT</button>
                 </div>
                 <div className="p-5 sm:p-6 space-y-4">
                   <label className="border-2 border-dashed border-slate-200 rounded-2xl p-8 sm:p-10 text-center bg-slate-50 block cursor-pointer hover:border-emerald-300 transition">
                     <Upload className="w-10 h-10 mx-auto text-emerald-500 mb-3" />
-                    <p className="font-semibold text-slate-800">Upload CSV ou TXT</p>
+                    <p className="font-semibold text-slate-800">Upload TXT</p>
                     <p className="text-sm text-slate-500 mt-1">Arraste o arquivo ou clique para selecionar.</p>
-                    <p className="text-xs text-slate-400 mt-3">Suporte atual: .txt (um número por linha)</p>
+                    <p className="text-xs text-slate-400 mt-3">Formato: Nome, Telefone (uma linha por contato)</p>
                     <input type="file" className="hidden" onChange={handleFileUpload} accept=".txt" />
                   </label>
 
