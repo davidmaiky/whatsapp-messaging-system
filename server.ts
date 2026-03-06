@@ -82,6 +82,18 @@ db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)").run('tim
 const app = express();
 app.use(express.json());
 
+// Log all requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
+// Test endpoint
+app.get("/api/test", (req, res) => {
+  console.log('GET /api/test - Test endpoint called');
+  res.json({ status: 'ok', message: 'API is working!' });
+});
+
 // Serve reset password page
 app.get("/reset-password", (req, res) => {
   res.sendFile(path.join(__dirname, "reset-password.html"));
@@ -261,18 +273,23 @@ app.post("/api/login", (req, res) => {
 
 // Diagnostic endpoint
 app.get("/api/system/check", (req, res) => {
+  console.log('GET /api/system/check - Endpoint called');
   try {
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
     const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get() as any;
     const users = db.prepare("SELECT id, username, email, role FROM users").all();
     
-    return res.json({
+    const response = {
       status: 'ok',
       tables: tables,
       userCount: userCount.count,
       users: users
-    });
+    };
+    
+    console.log('System check result:', JSON.stringify(response, null, 2));
+    return res.json(response);
   } catch (error: any) {
+    console.error('Error in system check:', error);
     return res.status(500).json({ error: error.message });
   }
 });
@@ -304,21 +321,26 @@ app.post("/api/system/create-admin", (req, res) => {
 
 // Reset admin password endpoint
 app.post("/api/system/reset-password", (req, res) => {
+  console.log('POST /api/system/reset-password - Endpoint called');
+  console.log('Request body:', req.body);
   try {
     const { email, newPassword } = req.body;
     
     if (!email || !newPassword) {
+      console.log('Missing email or password');
       return res.status(400).json({ error: 'Email e nova senha são obrigatórios' });
     }
     
     // Check if user exists
     const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
     if (!user) {
+      console.log('User not found:', email);
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
     
     // Update password
     db.prepare("UPDATE users SET password = ? WHERE email = ?").run(newPassword, email);
+    console.log('Password updated successfully for:', email);
     
     return res.json({ 
       message: 'Senha atualizada com sucesso',
@@ -460,15 +482,30 @@ async function startServer() {
   const PORT = 3000;
 
   if (process.env.NODE_ENV !== "production") {
+    console.log('Starting in development mode with Vite...');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
+  } else {
+    console.log('Starting in production mode...');
+    // Serve static files from dist folder in production
+    app.use(express.static(path.join(__dirname, 'dist')));
+    
+    // Serve index.html for all non-API routes
+    app.get('*', (req, res, next) => {
+      // Skip API routes
+      if (req.path.startsWith('/api/') || req.path === '/reset-password') {
+        return next();
+      }
+      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   });
 }
 
