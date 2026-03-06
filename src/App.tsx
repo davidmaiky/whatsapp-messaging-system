@@ -44,6 +44,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [instanceName, setInstanceName] = useState('');
+  const [timezone, setTimezone] = useState('America/Sao_Paulo');
   const itemsPerPage = 10;
 
   const showNotification = (type: 'success' | 'error', message: string) => {
@@ -78,15 +79,16 @@ export default function App() {
     const res = await fetch('/api/settings');
     const data = await res.json();
     setInstanceName(data.instanceName);
+    setTimezone(data.timezone || 'America/Sao_Paulo');
   };
 
   const updateSettings = async () => {
     await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ instanceName }),
+      body: JSON.stringify({ instanceName, timezone }),
     });
-    showNotification('success', 'Nome da instância atualizado!');
+    showNotification('success', 'Configurações atualizadas com sucesso!');
   };
 
   const sendNow = async () => {
@@ -362,7 +364,8 @@ export default function App() {
                           <td className="p-3 text-sm text-gray-700 font-mono">{msg.number}</td>
                           <td className="p-3 text-sm text-gray-600 max-w-xs truncate">{msg.message}</td>
                           <td className="p-3 text-sm text-gray-500">
-                            {new Date(msg.scheduled_at).toLocaleString('pt-BR', {
+                            {new Date(msg.scheduled_at.includes('Z') || msg.scheduled_at.includes('+') ? msg.scheduled_at : msg.scheduled_at + 'Z').toLocaleString('pt-BR', {
+                              timeZone: timezone,
                               day: '2-digit',
                               month: '2-digit',
                               year: 'numeric',
@@ -441,7 +444,17 @@ export default function App() {
                         <td className="p-3 text-sm text-gray-700">{msg.name || '-'}</td>
                         <td className="p-3 text-sm text-gray-700 font-mono">{msg.number}</td>
                         <td className="p-3 text-sm text-gray-600 max-w-xs truncate">{msg.message}</td>
-                        <td className="p-3 text-sm text-gray-500">{new Date(msg.created_at).toLocaleString('pt-BR')}</td>
+                        <td className="p-3 text-sm text-gray-500">
+                          {new Date(msg.created_at.includes('Z') || msg.created_at.includes('+') ? msg.created_at : msg.created_at + 'Z').toLocaleString('pt-BR', {
+                            timeZone: timezone,
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                          })}
+                        </td>
                         <td className="p-3">
                           <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                             msg.status === 'sent' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
@@ -511,6 +524,35 @@ export default function App() {
                   Nome da instância configurada no Evolution API
                 </p>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Fuso Horário do Sistema
+                </label>
+                <select 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-transparent transition" 
+                  value={timezone} 
+                  onChange={e => setTimezone(e.target.value)}
+                >
+                  <option value="America/Sao_Paulo">São Paulo (GMT-3)</option>
+                  <option value="America/Rio_Branco">Rio Branco (GMT-5)</option>
+                  <option value="America/Manaus">Manaus (GMT-4)</option>
+                  <option value="America/Fortaleza">Fortaleza (GMT-3)</option>
+                  <option value="America/Recife">Recife (GMT-3)</option>
+                  <option value="America/Bahia">Salvador (GMT-3)</option>
+                  <option value="America/Belem">Belém (GMT-3)</option>
+                  <option value="America/Cuiaba">Cuiabá (GMT-4)</option>
+                  <option value="America/Campo_Grande">Campo Grande (GMT-4)</option>
+                  <option value="America/Porto_Velho">Porto Velho (GMT-4)</option>
+                  <option value="America/Boa_Vista">Boa Vista (GMT-4)</option>
+                  <option value="America/Maceio">Maceió (GMT-3)</option>
+                  <option value="America/Araguaina">Araguaína (GMT-3)</option>
+                  <option value="America/Santarem">Santarém (GMT-3)</option>
+                  <option value="America/Noronha">Fernando de Noronha (GMT-2)</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Fuso horário usado para exibir datas e horários no sistema
+                </p>
+              </div>
               <button 
                 className="w-full p-4 bg-gray-700 hover:bg-gray-800 text-white rounded-lg font-medium transition shadow-md hover:shadow-lg text-lg" 
                 onClick={updateSettings}
@@ -522,6 +564,7 @@ export default function App() {
                 <div className="space-y-2 text-sm text-gray-600">
                   <p><strong>Versão:</strong> 1.0.0</p>
                   <p><strong>Instância Ativa:</strong> {instanceName || 'Não configurada'}</p>
+                  <p><strong>Fuso Horário:</strong> {timezone}</p>
                   <p><strong>Total de Mensagens:</strong> {messages.length}</p>
                   <p><strong>Mensagens Agendadas:</strong> {scheduledMessages.length}</p>
                 </div>

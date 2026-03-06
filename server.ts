@@ -29,6 +29,7 @@ db.exec(`
   );
 `);
 db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)").run('instance_name', process.env.EVOLUTION_INSTANCE || 'default');
+db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)").run('timezone', 'America/Sao_Paulo');
 
 const app = express();
 app.use(express.json());
@@ -59,7 +60,8 @@ async function sendWhatsAppMessage(number: string, message: string, name?: strin
       }
     );
     const messageId = response.data.key.id;
-    db.prepare("INSERT INTO messages (id, number, name, message, status) VALUES (?, ?, ?, ?, ?)").run(messageId, actualNumber, actualName || null, message, 'sent');
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO messages (id, number, name, message, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(messageId, actualNumber, actualName || null, message, 'sent', now);
     console.log(`Message sent to ${actualNumber}, ID: ${messageId}`);
   } catch (error: any) {
     console.error(`Failed to send message to ${actualNumber}. Payload:`, JSON.stringify(payload));
@@ -114,13 +116,22 @@ app.post("/api/send-bulk", async (req, res) => {
 });
 
 app.get("/api/settings", (req, res) => {
-  const setting = db.prepare("SELECT value FROM settings WHERE key = 'instance_name'").get();
-  res.json({ instanceName: setting?.value });
+  const instanceSetting = db.prepare("SELECT value FROM settings WHERE key = 'instance_name'").get();
+  const timezoneSetting = db.prepare("SELECT value FROM settings WHERE key = 'timezone'").get();
+  res.json({ 
+    instanceName: instanceSetting?.value,
+    timezone: timezoneSetting?.value || 'America/Sao_Paulo'
+  });
 });
 
 app.post("/api/settings", (req, res) => {
-  const { instanceName } = req.body;
-  db.prepare("UPDATE settings SET value = ? WHERE key = 'instance_name'").run(instanceName);
+  const { instanceName, timezone } = req.body;
+  if (instanceName !== undefined) {
+    db.prepare("UPDATE settings SET value = ? WHERE key = 'instance_name'").run(instanceName);
+  }
+  if (timezone !== undefined) {
+    db.prepare("UPDATE settings SET value = ? WHERE key = 'timezone'").run(timezone);
+  }
   res.json({ status: "updated" });
 });
 
