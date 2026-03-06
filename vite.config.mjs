@@ -10,7 +10,7 @@ export default defineConfig({
     strictPort: true,
     allowedHosts: true,
     hmr: {
-      host: 'maikysoft-uatizapi.iomi94.easypanel.host',
+      host: 'uatizapi.brazilianpremier.com.br',
       clientPort: 443,
     },
   },

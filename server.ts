@@ -1074,7 +1074,7 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        allowedHosts: ['maikysoft-uatizapi.iomi94.easypanel.host'],
+        allowedHosts: ['uatizapi.brazilianpremier.com.br'],
       },
       appType: "spa",
     });
