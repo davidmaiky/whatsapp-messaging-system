@@ -13,6 +13,15 @@ const __dirname = path.dirname(__filename);
 
 const db = new Database("messages.db");
 
+const addColumnIfNotExists = (tableName: string, columnName: string, definition: string) => {
+  const existingColumns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  const hasColumn = existingColumns.some((column) => column.name === columnName);
+
+  if (!hasColumn) {
+    db.prepare(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`).run();
+  }
+};
+
 // Criar tabelas
 try {
   db.exec(`
@@ -21,6 +30,10 @@ try {
       number TEXT,
       name TEXT,
       message TEXT,
+      media_type TEXT,
+      media_data TEXT,
+      media_name TEXT,
+      media_mime_type TEXT,
       scheduled_at DATETIME,
       status TEXT DEFAULT 'Agendado'
     );
@@ -29,6 +42,8 @@ try {
       number TEXT,
       name TEXT,
       message TEXT,
+      media_type TEXT,
+      media_name TEXT,
       status TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -83,12 +98,19 @@ try {
   throw error;
 }
 
+addColumnIfNotExists('messages', 'media_type', 'TEXT');
+addColumnIfNotExists('messages', 'media_name', 'TEXT');
+addColumnIfNotExists('scheduled_messages', 'media_type', 'TEXT');
+addColumnIfNotExists('scheduled_messages', 'media_data', 'TEXT');
+addColumnIfNotExists('scheduled_messages', 'media_name', 'TEXT');
+addColumnIfNotExists('scheduled_messages', 'media_mime_type', 'TEXT');
+
 db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)").run('instance_name', process.env.EVOLUTION_INSTANCE || 'default');
 db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)").run('timezone', 'America/Sao_Paulo');
 db.prepare("UPDATE scheduled_messages SET status = 'Agendado' WHERE status IS NULL OR TRIM(status) = ''").run();
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '30mb' }));
 
 // Log de todas as requisições
 app.use((req, res, next) => {
@@ -121,6 +143,15 @@ const APP_PERMISSION_IDS = [
   'manage-roles',
   'system-settings',
 ];
+
+type MediaType = 'image' | 'document' | 'video';
+
+type MediaPayload = {
+  type: MediaType;
+  data: string;
+  fileName?: string;
+  mimeType?: string;
+};
 
 type BulkCampaignStatus = {
   isRunning: boolean;
@@ -170,30 +201,215 @@ const waitWithStopCheck = async (ms: number) => {
   return true;
 };
 
-async function sendWhatsAppMessage(number: string, message: string, name?: string) {
-  const instanceName = db.prepare("SELECT value FROM settings WHERE key = 'instance_name'").get().value;
-  console.log(`Enviando mensagem para ${number}: "${message}"`);
-  const actualNumber = (number.includes(';') ? number.split(';')[1] : number).replace(/[^0-9]/g, '');
-  const actualName = name || (number.includes(';') ? number.split(';')[0] : undefined);
-  const payload = {
-    number: actualNumber,
-    text: message,
+const mediaTypeToEndpoint: Record<MediaType, string> = {
+  image: 'sendImage',
+  document: 'sendDocument',
+  video: 'sendVideo',
+};
+
+const normalizeMediaPayload = (media: any): MediaPayload | null => {
+  if (!media || typeof media !== 'object') return null;
+
+  const type = typeof media.type === 'string' ? media.type.trim().toLowerCase() : '';
+  const incomingData = typeof media.data === 'string' ? media.data.trim() : '';
+
+  if (!['image', 'document', 'video'].includes(type) || !incomingData) {
+    return null;
+  }
+
+  const dataUrlMatch = incomingData.match(/^data:([^;]+);base64,(.+)$/i);
+  const normalizedData = dataUrlMatch ? dataUrlMatch[2] : incomingData;
+  const normalizedMimeType =
+    (typeof media.mimeType === 'string' ? media.mimeType.trim() : '') ||
+    (dataUrlMatch ? dataUrlMatch[1] : '');
+
+  return {
+    type: type as MediaType,
+    data: normalizedData,
+    fileName: typeof media.fileName === 'string' ? media.fileName.trim() || undefined : undefined,
+    mimeType: normalizedMimeType || undefined,
   };
-  try {
-    console.log(`Enviando payload para ${instanceName}:`, payload);
-    const response = await axios.post(
-      `${EVOLUTION_API_URL}/message/sendText/${instanceName}`,
-      payload,
-      {
+};
+
+const sendMediaMessage = async (
+  instanceName: string,
+  number: string,
+  message: string,
+  media: MediaPayload,
+) => {
+  const caption = message && message.trim() ? message : '.';
+  const mimeType = media.mimeType || 'application/octet-stream';
+  const extensionFromMime = mimeType.includes('/') ? mimeType.split('/')[1].split(';')[0] : 'bin';
+  const safeFileName = (media.fileName && media.fileName.trim()) || `${media.type}.${extensionFromMime}`;
+  const mediaAsDataUrl = `data:${mimeType};base64,${media.data}`;
+
+  const typeSpecificBodyRaw =
+    media.type === 'image'
+      ? {
+          number,
+          image: media.data,
+          caption,
+          fileName: media.fileName,
+          mimetype: mimeType,
+        }
+      : media.type === 'video'
+        ? {
+            number,
+            video: media.data,
+            caption,
+            fileName: media.fileName,
+            mimetype: mimeType,
+          }
+        : {
+            number,
+            document: media.data,
+            caption,
+            fileName: media.fileName || 'documento',
+            mimetype: mimeType,
+          };
+
+  const typeSpecificBodyDataUrl =
+    media.type === 'image'
+      ? {
+          number,
+          image: mediaAsDataUrl,
+          caption,
+          fileName: media.fileName,
+          mimetype: mimeType,
+        }
+      : media.type === 'video'
+        ? {
+            number,
+            video: mediaAsDataUrl,
+            caption,
+            fileName: media.fileName,
+            mimetype: mimeType,
+          }
+        : {
+            number,
+            document: mediaAsDataUrl,
+            caption,
+            fileName: media.fileName || 'documento',
+            mimetype: mimeType,
+          };
+
+  const attempts = [
+    {
+      endpoint: `${EVOLUTION_API_URL}/message/sendMedia/${instanceName}`,
+      payload: {
+        number,
+        mediatype: media.type,
+        media: media.data,
+        caption,
+        fileName: safeFileName,
+        mimetype: mimeType,
+      },
+    },
+    {
+      endpoint: `${EVOLUTION_API_URL}/message/sendMedia/${instanceName}`,
+      payload: {
+        number,
+        mediatype: media.type,
+        media: mediaAsDataUrl,
+        caption,
+        fileName: safeFileName,
+        mimetype: mimeType,
+      },
+    },
+    {
+      endpoint: `${EVOLUTION_API_URL}/message/sendMedia/${instanceName}`,
+      payload: {
+        ...typeSpecificBodyRaw,
+        fileName: safeFileName,
+      },
+    },
+    {
+      endpoint: `${EVOLUTION_API_URL}/message/sendMedia/${instanceName}`,
+      payload: {
+        ...typeSpecificBodyDataUrl,
+        fileName: safeFileName,
+      },
+    },
+  ];
+
+  let lastError: any = null;
+
+  for (const attempt of attempts) {
+    try {
+      const response = await axios.post(attempt.endpoint, attempt.payload, {
         headers: {
           apikey: EVOLUTION_API_KEY,
           "Content-Type": "application/json",
         },
+      });
+      return response;
+    } catch (error: any) {
+      lastError = error;
+      const detailedError = {
+        status: error.response?.status,
+        data: error.response?.data,
+        payloadValidation: {
+          mediatype: media.type,
+          mimetype: mimeType,
+          hasCaption: Boolean(caption),
+          hasFileName: Boolean(safeFileName),
+          mediaLength: media.data?.length || 0,
+        },
+        message: error.message,
+      };
+      console.warn('Falha em tentativa de envio de mídia:', {
+        endpoint: attempt.endpoint,
+        error: JSON.parse(JSON.stringify(detailedError)),
+      });
+    }
+  }
+
+  throw lastError;
+};
+
+async function sendWhatsAppMessage(number: string, message: string, name?: string, media?: MediaPayload | null) {
+  const instanceName = db.prepare("SELECT value FROM settings WHERE key = 'instance_name'").get().value;
+  console.log(`Enviando mensagem para ${number}: "${message}"`);
+  const actualNumber = (number.includes(';') ? number.split(';')[1] : number).replace(/[^0-9]/g, '');
+  const actualName = name || (number.includes(';') ? number.split(';')[0] : undefined);
+  const payload = media
+    ? {
+        number: actualNumber,
+        mediaType: media.type,
+        hasMedia: true,
+        text: message,
       }
-    );
-    const messageId = response.data.key.id;
+    : {
+        number: actualNumber,
+        text: message,
+      };
+  try {
+    console.log(`Enviando payload para ${instanceName}:`, payload);
+    const response = media
+      ? await sendMediaMessage(instanceName, actualNumber, message, media)
+      : await axios.post(
+          `${EVOLUTION_API_URL}/message/sendText/${instanceName}`,
+          { number: actualNumber, text: message },
+          {
+            headers: {
+              apikey: EVOLUTION_API_KEY,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+    const messageId = response.data?.key?.id || response.data?.key?.remoteJid || `${Date.now()}-${actualNumber}`;
     const now = new Date().toISOString();
-    db.prepare("INSERT INTO messages (id, number, name, message, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(messageId, actualNumber, actualName || null, message, 'sent', now);
+    db.prepare("INSERT INTO messages (id, number, name, message, status, created_at, media_type, media_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(
+        messageId,
+        actualNumber,
+        actualName || null,
+        message,
+        'sent',
+        now,
+        media?.type || null,
+        media?.fileName || null,
+      );
     console.log(`Mensagem enviada para ${actualNumber}, ID: ${messageId}`);
   } catch (error: any) {
     console.error(`Falha ao enviar mensagem para ${actualNumber}. Payload:`, JSON.stringify(payload));
@@ -297,22 +513,33 @@ app.delete('/api/contacts/:id', (req, res) => {
 });
 
 app.post("/api/send-now", async (req, res) => {
-  const { name, number, message } = req.body;
-  await sendWhatsAppMessage(number, message, name);
+  const { name, number, message, media } = req.body;
+  const normalizedMedia = normalizeMediaPayload(media);
+
+  if ((!message || String(message).trim() === '') && !normalizedMedia) {
+    return res.status(400).json({ error: 'Mensagem ou mídia é obrigatória.' });
+  }
+
+  const success = await sendWhatsAppMessage(number, message || '', name, normalizedMedia);
+  if (!success) {
+    return res.status(502).json({ status: 'failed', error: 'Falha ao enviar mensagem.' });
+  }
+
   res.json({ status: "sent" });
 });
 
 app.post("/api/send-bulk", async (req, res) => {
-  const { numbers, message, delay } = req.body;
+  const { numbers, message, delay, media } = req.body;
   const parsedNumbers = Array.isArray(numbers) ? numbers.filter((number) => typeof number === 'string' && number.trim() !== '') : [];
   const parsedDelay = Math.max(1, Number(delay) || 1);
+  const normalizedMedia = normalizeMediaPayload(media);
 
   if (bulkCampaignStatus.isRunning) {
     return res.status(409).json({ error: 'Já existe uma campanha em andamento.' });
   }
 
-  if (!message || typeof message !== 'string' || message.trim() === '') {
-    return res.status(400).json({ error: 'Mensagem da campanha é obrigatória.' });
+  if ((!message || typeof message !== 'string' || message.trim() === '') && !normalizedMedia) {
+    return res.status(400).json({ error: 'Mensagem ou mídia da campanha é obrigatória.' });
   }
 
   if (parsedNumbers.length === 0) {
@@ -323,7 +550,7 @@ app.post("/api/send-bulk", async (req, res) => {
   bulkCampaignStatus.stopRequested = false;
   bulkCampaignStatus.startedAt = new Date().toISOString();
   bulkCampaignStatus.endedAt = null;
-  bulkCampaignStatus.messagePreview = message.slice(0, 120);
+  bulkCampaignStatus.messagePreview = normalizedMedia ? `[${normalizedMedia.type}] ${String(message || '').slice(0, 100)}` : message.slice(0, 120);
   resetBulkCampaignCounters();
   bulkCampaignStatus.total = parsedNumbers.length;
 
@@ -348,7 +575,7 @@ app.post("/api/send-bulk", async (req, res) => {
           }
         }
 
-        const success = await sendWhatsAppMessage(number, message);
+        const success = await sendWhatsAppMessage(number, message || '', undefined, normalizedMedia);
 
         bulkCampaignStatus.processed += 1;
         if (success) {
@@ -411,14 +638,15 @@ app.post("/api/settings", (req, res) => {
 });
 
 app.post("/api/schedule", (req, res) => {
-  const { name, number, message, scheduledAt } = req.body;
+  const { name, number, message, scheduledAt, media } = req.body;
+  const normalizedMedia = normalizeMediaPayload(media);
   console.log(`Agendando mensagem. Nome: ${name}, Número: ${number}, Mensagem: ${message}, AgendadoPara: ${scheduledAt}`);
-  if (!message || message.trim() === "") {
-    console.error("Tentativa de agendar mensagem com texto vazio");
-    return res.status(400).json({ error: "Mensagem é obrigatória" });
+  if ((!message || message.trim() === "") && !normalizedMedia) {
+    console.error("Tentativa de agendar mensagem sem texto e sem mídia");
+    return res.status(400).json({ error: "Mensagem ou mídia é obrigatória" });
   }
-  const stmt = db.prepare("INSERT INTO scheduled_messages (name, number, message, scheduled_at, status) VALUES (?, ?, ?, ?, 'Agendado')");
-  stmt.run(name, number, message, scheduledAt);
+  const stmt = db.prepare("INSERT INTO scheduled_messages (name, number, message, media_type, media_data, media_name, media_mime_type, scheduled_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Agendado')");
+  stmt.run(name, number, message || '', normalizedMedia?.type || null, normalizedMedia?.data || null, normalizedMedia?.fileName || null, normalizedMedia?.mimeType || null, scheduledAt);
   res.json({ status: "scheduled" });
 });
 
@@ -429,16 +657,17 @@ app.get("/api/scheduled-messages", (req, res) => {
 
 app.put("/api/scheduled-messages/:id", (req, res) => {
   const { id } = req.params;
-  const { name, number, message, scheduledAt } = req.body;
+  const { name, number, message, scheduledAt, media } = req.body;
+  const normalizedMedia = normalizeMediaPayload(media);
   console.log(`Atualizando mensagem agendada ${id}. Nome: ${name}, Número: ${number}, Mensagem: ${message}, AgendadoPara: ${scheduledAt}`);
   
-  if (!message || message.trim() === "") {
-    console.error("Tentativa de atualizar mensagem com texto vazio");
-    return res.status(400).json({ error: "Mensagem é obrigatória" });
+  if ((!message || message.trim() === "") && !normalizedMedia) {
+    console.error("Tentativa de atualizar mensagem sem texto e sem mídia");
+    return res.status(400).json({ error: "Mensagem ou mídia é obrigatória" });
   }
   
-  const stmt = db.prepare("UPDATE scheduled_messages SET name = ?, number = ?, message = ?, scheduled_at = ? WHERE id = ?");
-  const result = stmt.run(name, number, message, scheduledAt, id);
+  const stmt = db.prepare("UPDATE scheduled_messages SET name = ?, number = ?, message = ?, media_type = ?, media_data = ?, media_name = ?, media_mime_type = ?, scheduled_at = ? WHERE id = ?");
+  const result = stmt.run(name, number, message || '', normalizedMedia?.type || null, normalizedMedia?.data || null, normalizedMedia?.fileName || null, normalizedMedia?.mimeType || null, scheduledAt, id);
   
   if (result.changes === 0) {
     return res.status(404).json({ error: "Mensagem agendada não encontrada" });
@@ -801,7 +1030,17 @@ cron.schedule("* * * * *", async () => {
       continue;
     }
 
-    const success = await sendWhatsAppMessage(msg.number, msg.message, msg.name);
+    const success = await sendWhatsAppMessage(
+      msg.number,
+      msg.message,
+      msg.name,
+      normalizeMediaPayload({
+        type: msg.media_type,
+        data: msg.media_data,
+        fileName: msg.media_name,
+        mimeType: msg.media_mime_type,
+      })
+    );
     if (success) {
       db.prepare("DELETE FROM scheduled_messages WHERE id = ?").run(msg.id);
     } else {
@@ -824,6 +1063,7 @@ async function startServer() {
   const PORT = 3000;
   const distPath = path.join(__dirname, 'dist');
   const hasDistFolder = existsSync(distPath);
+  const APP_RUNTIME_SIGNATURE = 'UATIZAPI_MEDIA_FIX_V3';
 
   // Servir dist apenas quando NODE_ENV=production (evita frontend desatualizado no dev)
   const isProduction = process.env.NODE_ENV === "production";
@@ -855,6 +1095,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Runtime: ${APP_RUNTIME_SIGNATURE}`);
     console.log(`Servidor rodando em http://localhost:${PORT}`);
     console.log(`Modo: ${isProduction ? 'produção' : 'desenvolvimento'}`);
     console.log(`NODE_ENV: ${process.env.NODE_ENV || 'não definido'}`);

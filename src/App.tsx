@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, ChangeEvent, useEffect, FormEvent } from 'react';
+import { useState, ChangeEvent, useEffect, FormEvent, useRef } from 'react';
 import { CheckCircle2, AlertCircle, Send, Users, Clock, Settings, Upload, Trash2, Search, MessageCircle, History, UserPlus, Shield, Edit2, X, LogOut, Lock, Menu, Bell, ChevronRight, Rocket, Smartphone } from 'lucide-react';
 
 interface Message {
@@ -11,6 +11,8 @@ interface Message {
   number: string;
   name?: string;
   message: string;
+  media_type?: string;
+  media_name?: string;
   status: string;
   created_at: string;
 }
@@ -20,8 +22,21 @@ interface ScheduledMessage {
   number: string;
   name?: string;
   message: string;
+  media_type?: string;
+  media_data?: string;
+  media_name?: string;
+  media_mime_type?: string;
   scheduled_at: string;
   status: string;
+}
+
+type MediaType = 'image' | 'document' | 'video';
+
+interface MediaAttachment {
+  type: MediaType;
+  data: string;
+  fileName?: string;
+  mimeType?: string;
 }
 
 interface User {
@@ -102,12 +117,15 @@ export default function App() {
   const [name, setName] = useState('');
   const [number, setNumber] = useState('');
   const [message, setMessage] = useState('');
+  const [sendNowMedia, setSendNowMedia] = useState<MediaAttachment | null>(null);
   const [scheduledAt, setScheduledAt] = useState('');
   const [scheduledName, setScheduledName] = useState('');
   const [scheduledNumber, setScheduledNumber] = useState('');
   const [scheduledMessage, setScheduledMessage] = useState('');
+  const [scheduledMedia, setScheduledMedia] = useState<MediaAttachment | null>(null);
   const [bulkNumbers, setBulkNumbers] = useState<string[]>([]);
   const [bulkMessage, setBulkMessage] = useState('');
+  const [bulkMedia, setBulkMedia] = useState<MediaAttachment | null>(null);
   const [delay, setDelay] = useState(1);
   const [messages, setMessages] = useState<Message[]>([]);
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
@@ -130,6 +148,9 @@ export default function App() {
   const [editingScheduledMessage, setEditingScheduledMessage] = useState<number | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [bulkCampaignStatus, setBulkCampaignStatus] = useState<BulkCampaignStatus | null>(null);
+  const sendNowFileInputRef = useRef<HTMLInputElement | null>(null);
+  const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
+  const scheduledFileInputRef = useRef<HTMLInputElement | null>(null);
   const itemsPerPage = 10;
 
   const showNotification = (type: 'success' | 'error', message: string) => {
@@ -648,14 +669,80 @@ export default function App() {
     }
   };
 
-  const sendNow = async () => {
+  const readFileAsDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Falha ao ler arquivo'));
+      reader.readAsDataURL(file);
+    });
+
+  const pickMediaTypeFromFile = (file: File): MediaType | null => {
+    if (file.type.startsWith('image/')) return 'image';
+    if (file.type.startsWith('video/')) return 'video';
+    return 'document';
+  };
+
+  const buildMediaAttachment = async (file: File): Promise<MediaAttachment> => {
+    const dataUrl = await readFileAsDataUrl(file);
+    const type = pickMediaTypeFromFile(file);
+
+    if (!type) {
+      throw new Error('Tipo de arquivo não suportado');
+    }
+
+    const base64Data = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+
+    return {
+      type,
+      data: base64Data,
+      fileName: file.name,
+      mimeType: file.type,
+    };
+  };
+
+  const handleMediaSelection = async (
+    event: ChangeEvent<HTMLInputElement>,
+    target: 'send-now' | 'bulk' | 'schedule'
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
     try {
-      await fetch('/api/send-now', {
+      const media = await buildMediaAttachment(file);
+      if (target === 'send-now') setSendNowMedia(media);
+      if (target === 'bulk') setBulkMedia(media);
+      if (target === 'schedule') setScheduledMedia(media);
+      showNotification('success', `${file.name} anexado como ${media.type}.`);
+    } catch (error: any) {
+      showNotification('error', error?.message || 'Não foi possível anexar o arquivo.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const sendNow = async () => {
+    if (!message.trim() && !sendNowMedia) {
+      showNotification('error', 'Digite uma mensagem ou anexe uma mídia.');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/send-now', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, number, message }),
+        body: JSON.stringify({ name, number, message, media: sendNowMedia }),
       });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        showNotification('error', data.error || 'Falha ao enviar mensagem.');
+        return;
+      }
+
       showNotification('success', 'Mensagem enviada com sucesso!');
+      setSendNowMedia(null);
       fetchMessages();
     } catch {
       showNotification('error', 'Falha ao enviar mensagem.');
@@ -664,11 +751,17 @@ export default function App() {
 
   const sendBulk = async () => {
     console.log('Sending bulk:', { bulkNumbers, bulkMessage, delay });
+
+    if (!bulkMessage.trim() && !bulkMedia) {
+      showNotification('error', 'Digite uma mensagem ou anexe uma mídia para a campanha.');
+      return;
+    }
+
     try {
       const response = await fetch('/api/send-bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ numbers: bulkNumbers, message: bulkMessage, delay }),
+        body: JSON.stringify({ numbers: bulkNumbers, message: bulkMessage, delay, media: bulkMedia }),
       });
 
       const data = await response.json().catch(() => ({}));
@@ -719,6 +812,11 @@ export default function App() {
   };
 
   const scheduleMessage = async () => {
+    if (!scheduledMessage.trim() && !scheduledMedia) {
+      showNotification('error', 'Digite uma mensagem ou anexe uma mídia no agendamento.');
+      return;
+    }
+
     try {
       // Converter o horário local para ISO UTC
       const localDate = new Date(scheduledAt);
@@ -729,7 +827,7 @@ export default function App() {
         const response = await fetch(`/api/scheduled-messages/${editingScheduledMessage}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, scheduledAt: utcDate }),
+          body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, media: scheduledMedia, scheduledAt: utcDate }),
         });
 
         if (!response.ok) {
@@ -744,7 +842,7 @@ export default function App() {
         const response = await fetch('/api/schedule', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, scheduledAt: utcDate }),
+          body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, media: scheduledMedia, scheduledAt: utcDate }),
         });
 
         if (!response.ok) {
@@ -758,6 +856,7 @@ export default function App() {
       setScheduledName('');
       setScheduledNumber('');
       setScheduledMessage('');
+      setScheduledMedia(null);
       setScheduledAt('');
     } catch (error: any) {
       showNotification('error', error?.message || (editingScheduledMessage ? 'Falha ao atualizar mensagem.' : 'Falha ao agendar mensagem.'));
@@ -768,6 +867,16 @@ export default function App() {
     setScheduledName(msg.name || '');
     setScheduledNumber(msg.number);
     setScheduledMessage(msg.message);
+    setScheduledMedia(
+      msg.media_type && msg.media_data
+        ? {
+            type: msg.media_type as MediaType,
+            data: msg.media_data,
+            fileName: msg.media_name,
+            mimeType: msg.media_mime_type,
+          }
+        : null
+    );
     
     // Converter de UTC para o formato datetime-local
     const utcDate = new Date(msg.scheduled_at);
@@ -785,6 +894,7 @@ export default function App() {
     setScheduledName('');
     setScheduledNumber('');
     setScheduledMessage('');
+    setScheduledMedia(null);
     setScheduledAt('');
   };
 
@@ -810,6 +920,31 @@ export default function App() {
     await fetch('/api/messages/clear', { method: 'POST' });
     fetchMessages();
     showNotification('success', 'Histórico limpo!');
+  };
+
+  const messageMatchesSearch = (msg: Message, term: string) => {
+    const query = term.trim().toLowerCase();
+    if (!query) return true;
+
+    return (
+      (msg.name || '').toLowerCase().includes(query) ||
+      msg.number.includes(query) ||
+      (msg.message || '').toLowerCase().includes(query) ||
+      (msg.media_name || '').toLowerCase().includes(query) ||
+      (msg.media_type || '').toLowerCase().includes(query)
+    );
+  };
+
+  const mediaTypeLabelMap: Record<string, string> = {
+    image: 'Imagem',
+    document: 'Documento',
+    video: 'Vídeo',
+  };
+
+  const mediaTypeClassMap: Record<string, string> = {
+    image: 'bg-emerald-100 text-emerald-700',
+    document: 'bg-blue-100 text-blue-700',
+    video: 'bg-purple-100 text-purple-700',
   };
 
   const normalizePermissions = (permissions?: string) =>
@@ -961,10 +1096,33 @@ export default function App() {
                   onChange={e => setMessage(e.target.value)}
                 />
                 <div className="flex flex-wrap gap-3">
-                  <button className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold text-slate-700">+ Imagem</button>
-                  <button className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold text-slate-700">+ PDF</button>
-                  <button className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold text-slate-700">+ Vídeo</button>
+                  <input
+                    ref={sendNowFileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                    onChange={(e) => handleMediaSelection(e, 'send-now')}
+                  />
+                  <button
+                    className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold text-slate-700"
+                    onClick={() => sendNowFileInputRef.current?.click()}
+                  >
+                    + Imagem / Documento / Vídeo
+                  </button>
+                  {sendNowMedia && (
+                    <button
+                      className="px-4 py-2 rounded-xl bg-red-100 text-xs font-semibold text-red-700"
+                      onClick={() => setSendNowMedia(null)}
+                    >
+                      Remover anexo
+                    </button>
+                  )}
                 </div>
+                {sendNowMedia && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 font-medium">
+                    Anexo: {sendNowMedia.fileName || 'arquivo'} ({sendNowMedia.type})
+                  </div>
+                )}
               </section>
 
               <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
@@ -999,7 +1157,7 @@ export default function App() {
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between"><span className="text-slate-500">Contato</span><span className="font-semibold">{name || 'Não definido'}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Número</span><span className="font-semibold">{number || '-'}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Tipo</span><span className="font-semibold">Texto</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Tipo</span><span className="font-semibold">{sendNowMedia ? `Mídia (${sendNowMedia.type})` : 'Texto'}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Tamanho</span><span className="font-semibold">{message.length} caracteres</span></div>
                 </div>
               </div>
@@ -1083,6 +1241,34 @@ export default function App() {
                     value={bulkMessage}
                     onChange={e => setBulkMessage(e.target.value)}
                   />
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      ref={bulkFileInputRef}
+                      type="file"
+                      className="hidden"
+                      accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                      onChange={(e) => handleMediaSelection(e, 'bulk')}
+                    />
+                    <button
+                      className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold text-slate-700"
+                      onClick={() => bulkFileInputRef.current?.click()}
+                    >
+                      + Anexar Imagem / Documento / Vídeo
+                    </button>
+                    {bulkMedia && (
+                      <button
+                        className="px-4 py-2 rounded-xl bg-red-100 text-xs font-semibold text-red-700"
+                        onClick={() => setBulkMedia(null)}
+                      >
+                        Remover anexo
+                      </button>
+                    )}
+                  </div>
+                  {bulkMedia && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 font-medium">
+                      Anexo da campanha: {bulkMedia.fileName || 'arquivo'} ({bulkMedia.type})
+                    </div>
+                  )}
                   <div>
                     <label className="text-sm font-medium text-slate-700 block mb-2">Intervalo entre mensagens</label>
                     <div className="flex items-center gap-3">
@@ -1178,7 +1364,7 @@ export default function App() {
                 <h3 className="font-bold text-slate-800 mb-4">Resumo da Campanha</h3>
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between"><span className="text-slate-500">Público</span><span className="font-semibold">{bulkCampaignStatus?.isRunning ? bulkCampaignStatus.total : bulkNumbers.length} contatos</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Tipo de Mensagem</span><span className="font-semibold">Texto</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Tipo de Mensagem</span><span className="font-semibold">{bulkMedia ? `Mídia (${bulkMedia.type})` : 'Texto'}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Intervalo</span><span className="font-semibold">{delay}s</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Status</span><span className="font-semibold">{bulkCampaignStatus?.isRunning ? 'Em andamento' : 'Parada'}</span></div>
                   <div className="pt-3 border-t border-slate-100 flex justify-between text-base">
@@ -1369,6 +1555,34 @@ export default function App() {
                     onChange={e => setScheduledMessage(e.target.value)}
                     placeholder="Mensagem do agendamento"
                   />
+                  <div className="flex flex-wrap gap-3 mt-3">
+                    <input
+                      ref={scheduledFileInputRef}
+                      type="file"
+                      className="hidden"
+                      accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                      onChange={(e) => handleMediaSelection(e, 'schedule')}
+                    />
+                    <button
+                      className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold text-slate-700"
+                      onClick={() => scheduledFileInputRef.current?.click()}
+                    >
+                      + Anexar Imagem / Documento / Vídeo
+                    </button>
+                    {scheduledMedia && (
+                      <button
+                        className="px-4 py-2 rounded-xl bg-red-100 text-xs font-semibold text-red-700"
+                        onClick={() => setScheduledMedia(null)}
+                      >
+                        Remover anexo
+                      </button>
+                    )}
+                  </div>
+                  {scheduledMedia && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 font-medium mt-3">
+                      Anexo do agendamento: {scheduledMedia.fileName || 'arquivo'} ({scheduledMedia.type})
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -1426,7 +1640,14 @@ export default function App() {
                         <tr key={msg.id} className="border-b border-slate-100 hover:bg-slate-50 transition">
                           <td className="p-3 text-sm text-slate-700">{msg.name || '-'}</td>
                           <td className="p-3 text-sm text-slate-700 font-mono">{msg.number}</td>
-                          <td className="p-3 text-sm text-slate-600 max-w-xs truncate">{msg.message}</td>
+                          <td className="p-3 text-sm text-slate-600 max-w-xs">
+                            <p className="truncate">{msg.message || '-'}</p>
+                            {msg.media_type && (
+                              <p className="text-[11px] text-emerald-700 mt-1 font-medium truncate">
+                                Anexo: {msg.media_name || msg.media_type} ({msg.media_type})
+                              </p>
+                            )}
+                          </td>
                           <td className="p-3 text-sm text-slate-500 whitespace-nowrap">
                             {new Date(msg.scheduled_at.includes('Z') || msg.scheduled_at.includes('+') ? msg.scheduled_at : msg.scheduled_at + 'Z').toLocaleString('pt-BR', {
                               timeZone: timezone,
@@ -1517,17 +1738,27 @@ export default function App() {
                 </thead>
                 <tbody>
                   {messages
-                    .filter(msg =>
-                      msg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      msg.number.includes(searchTerm) ||
-                      msg.message.toLowerCase().includes(searchTerm.toLowerCase())
-                    )
+                    .filter(msg => messageMatchesSearch(msg, searchTerm))
                     .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
                     .map(msg => (
                       <tr key={msg.id} className="border-b border-gray-100 hover:bg-gray-50 transition">
                         <td className="p-3 text-sm text-gray-700">{msg.name || '-'}</td>
                         <td className="p-3 text-sm text-gray-700 font-mono">{msg.number}</td>
-                        <td className="p-3 text-sm text-gray-600 max-w-xs truncate">{msg.message}</td>
+                        <td className="p-3 text-sm text-gray-600 max-w-xs">
+                          <p className="truncate">{msg.message || '-'}</p>
+                          {msg.media_type && (
+                            <div className="mt-1 flex items-center gap-2 min-w-0">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${mediaTypeClassMap[msg.media_type] || 'bg-slate-100 text-slate-700'}`}>
+                                {mediaTypeLabelMap[msg.media_type] || msg.media_type}
+                              </span>
+                              {msg.media_name && (
+                                <span className="text-[11px] text-slate-500 truncate" title={msg.media_name}>
+                                  {msg.media_name}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </td>
                         <td className="p-3 text-sm text-gray-500">
                           {new Date(msg.created_at.includes('Z') || msg.created_at.includes('+') ? msg.created_at : msg.created_at + 'Z').toLocaleString('pt-BR', {
                             timeZone: timezone,
@@ -1562,22 +1793,16 @@ export default function App() {
               </button>
               <span className="text-sm text-gray-600 font-medium">
                 Página {currentPage} de {Math.max(1, Math.ceil(messages.filter(msg =>
-                  msg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                  msg.number.includes(searchTerm) ||
-                  msg.message.toLowerCase().includes(searchTerm.toLowerCase())
+                  messageMatchesSearch(msg, searchTerm)
                 ).length / itemsPerPage))}
               </span>
               <button
                 className="p-2 px-4 bg-gray-200 hover:bg-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition font-medium text-sm"
                 onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.max(1, Math.ceil(messages.filter(msg =>
-                  msg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                  msg.number.includes(searchTerm) ||
-                  msg.message.toLowerCase().includes(searchTerm.toLowerCase())
+                  messageMatchesSearch(msg, searchTerm)
                 ).length / itemsPerPage))))}
                 disabled={currentPage === Math.max(1, Math.ceil(messages.filter(msg =>
-                  msg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                  msg.number.includes(searchTerm) ||
-                  msg.message.toLowerCase().includes(searchTerm.toLowerCase())
+                  messageMatchesSearch(msg, searchTerm)
                 ).length / itemsPerPage))}
               >
                 Próximo →
@@ -2142,7 +2367,7 @@ export default function App() {
             <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-500 rounded-2xl mb-4">
               <MessageCircle className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-black text-slate-900 mb-2">WBM Pro</h1>
+            <h1 className="text-3xl font-black text-slate-900 mb-2">UATIZAPI</h1>
             <p className="text-slate-500">Faça login para continuar</p>
           </div>
 
@@ -2216,7 +2441,7 @@ export default function App() {
               <MessageCircle className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl font-black text-slate-900">WBM Pro</h1>
+              <h1 className="text-xl font-black text-slate-900">UATIZAPI</h1>
               <p className="text-xs text-slate-500">Mensageria Empresarial</p>
             </div>
           </div>
@@ -2279,7 +2504,7 @@ export default function App() {
                 <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-slate-900">
                   <MessageCircle className="w-4 h-4" />
                 </div>
-                <p className="font-black text-slate-900">WBM Pro</p>
+                <p className="font-black text-slate-900">UATIZAPI</p>
               </div>
               <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 rounded-lg hover:bg-slate-100">
                 <X className="w-4 h-4" />
