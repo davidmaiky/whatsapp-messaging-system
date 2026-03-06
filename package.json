@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "start": "npm run build:frontend && NODE_ENV=production tsx server.ts",
+    "start": "npm rebuild better-sqlite3 && npm run build:frontend && NODE_ENV=production tsx server.ts",
     "start:dev": "tsx server.ts",
     "build": "npm run build:frontend",
     "build:frontend": "vite build",

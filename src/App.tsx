@@ -521,12 +521,16 @@ export default function App() {
 
   const scheduleMessage = async () => {
     try {
+      // Converter o horário local para ISO UTC
+      const localDate = new Date(scheduledAt);
+      const utcDate = localDate.toISOString();
+      
       if (editingScheduledMessage) {
         // Editando uma mensagem existente
         await fetch(`/api/scheduled-messages/${editingScheduledMessage}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, scheduledAt }),
+          body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, scheduledAt: utcDate }),
         });
         showNotification('success', 'Mensagem atualizada com sucesso!');
         setEditingScheduledMessage(null);
@@ -535,7 +539,7 @@ export default function App() {
         await fetch('/api/schedule', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, scheduledAt }),
+          body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, scheduledAt: utcDate }),
         });
         showNotification('success', 'Mensagem agendada com sucesso!');
       }
@@ -553,7 +557,14 @@ export default function App() {
     setScheduledName(msg.name || '');
     setScheduledNumber(msg.number);
     setScheduledMessage(msg.message);
-    setScheduledAt(msg.scheduled_at);
+    
+    // Converter de UTC para o formato datetime-local
+    const utcDate = new Date(msg.scheduled_at);
+    const localDateString = new Date(utcDate.getTime() - utcDate.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    setScheduledAt(localDateString);
+    
     setEditingScheduledMessage(msg.id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
