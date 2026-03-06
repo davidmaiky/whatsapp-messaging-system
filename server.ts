@@ -115,6 +115,54 @@ const APP_PERMISSION_IDS = [
   'system-settings',
 ];
 
+type BulkCampaignStatus = {
+  isRunning: boolean;
+  stopRequested: boolean;
+  total: number;
+  processed: number;
+  sent: number;
+  failed: number;
+  startedAt: string | null;
+  endedAt: string | null;
+  messagePreview: string;
+};
+
+const bulkCampaignStatus: BulkCampaignStatus = {
+  isRunning: false,
+  stopRequested: false,
+  total: 0,
+  processed: 0,
+  sent: 0,
+  failed: 0,
+  startedAt: null,
+  endedAt: null,
+  messagePreview: '',
+};
+
+const resetBulkCampaignCounters = () => {
+  bulkCampaignStatus.total = 0;
+  bulkCampaignStatus.processed = 0;
+  bulkCampaignStatus.sent = 0;
+  bulkCampaignStatus.failed = 0;
+};
+
+const waitWithStopCheck = async (ms: number) => {
+  const step = 250;
+  let elapsed = 0;
+
+  while (elapsed < ms) {
+    if (bulkCampaignStatus.stopRequested) {
+      return false;
+    }
+
+    const sleepTime = Math.min(step, ms - elapsed);
+    await new Promise(resolve => setTimeout(resolve, sleepTime));
+    elapsed += sleepTime;
+  }
+
+  return true;
+};
+
 async function sendWhatsAppMessage(number: string, message: string, name?: string) {
   const instanceName = db.prepare("SELECT value FROM settings WHERE key = 'instance_name'").get().value;
   console.log(`Sending message to ${number}: "${message}"`);
@@ -174,22 +222,90 @@ app.post("/api/send-now", async (req, res) => {
 
 app.post("/api/send-bulk", async (req, res) => {
   const { numbers, message, delay } = req.body;
-  console.log(`Bulk sending initiated. Numbers: ${JSON.stringify(numbers)}, Message: ${message}, Delay: ${delay}`);
-  // Send asynchronously with delay
+  const parsedNumbers = Array.isArray(numbers) ? numbers.filter((number) => typeof number === 'string' && number.trim() !== '') : [];
+  const parsedDelay = Math.max(1, Number(delay) || 1);
+
+  if (bulkCampaignStatus.isRunning) {
+    return res.status(409).json({ error: 'Já existe uma campanha em andamento.' });
+  }
+
+  if (!message || typeof message !== 'string' || message.trim() === '') {
+    return res.status(400).json({ error: 'Mensagem da campanha é obrigatória.' });
+  }
+
+  if (parsedNumbers.length === 0) {
+    return res.status(400).json({ error: 'Nenhum número válido foi informado.' });
+  }
+
+  bulkCampaignStatus.isRunning = true;
+  bulkCampaignStatus.stopRequested = false;
+  bulkCampaignStatus.startedAt = new Date().toISOString();
+  bulkCampaignStatus.endedAt = null;
+  bulkCampaignStatus.messagePreview = message.slice(0, 120);
+  resetBulkCampaignCounters();
+  bulkCampaignStatus.total = parsedNumbers.length;
+
+  console.log(`Bulk campaign started. Total: ${parsedNumbers.length}, Delay: ${parsedDelay}s`);
+
   (async () => {
-    for (let i = 0; i < numbers.length; i++) {
-      const number = numbers[i];
-      console.log(`Sending bulk message to ${number}`);
-      
-      // Apply delay before sending, except for the first message
-      if (i > 0) {
-        await new Promise(resolve => setTimeout(resolve, (delay || 1) * 1000));
+    try {
+      for (let i = 0; i < parsedNumbers.length; i++) {
+        if (bulkCampaignStatus.stopRequested) {
+          console.log('Bulk campaign stop requested. Finishing loop.');
+          break;
+        }
+
+        const number = parsedNumbers[i];
+        console.log(`Sending bulk message to ${number}`);
+
+        if (i > 0) {
+          const canContinue = await waitWithStopCheck(parsedDelay * 1000);
+          if (!canContinue) {
+            console.log('Bulk campaign interrupted during delay interval.');
+            break;
+          }
+        }
+
+        const success = await sendWhatsAppMessage(number, message);
+
+        bulkCampaignStatus.processed += 1;
+        if (success) {
+          bulkCampaignStatus.sent += 1;
+        } else {
+          bulkCampaignStatus.failed += 1;
+        }
       }
-      
-      await sendWhatsAppMessage(number, message);
+    } catch (error: any) {
+      console.error('Unexpected error during bulk campaign:', error?.message || error);
+    } finally {
+      bulkCampaignStatus.isRunning = false;
+      bulkCampaignStatus.endedAt = new Date().toISOString();
+      bulkCampaignStatus.stopRequested = false;
+      console.log(`Bulk campaign finished. Processed: ${bulkCampaignStatus.processed}/${bulkCampaignStatus.total}, Sent: ${bulkCampaignStatus.sent}, Failed: ${bulkCampaignStatus.failed}`);
     }
   })();
-  res.json({ status: "bulk-initiated" });
+
+  res.json({ status: "bulk-initiated", total: parsedNumbers.length, delay: parsedDelay });
+});
+
+app.get('/api/bulk-campaign/status', (req, res) => {
+  const progress = bulkCampaignStatus.total > 0
+    ? Math.round((bulkCampaignStatus.processed / bulkCampaignStatus.total) * 100)
+    : 0;
+
+  res.json({
+    ...bulkCampaignStatus,
+    progress,
+  });
+});
+
+app.post('/api/bulk-campaign/stop', (req, res) => {
+  if (!bulkCampaignStatus.isRunning) {
+    return res.status(409).json({ error: 'Não há campanha em andamento para parar.' });
+  }
+
+  bulkCampaignStatus.stopRequested = true;
+  return res.json({ status: 'stop-requested' });
 });
 
 app.get("/api/settings", (req, res) => {

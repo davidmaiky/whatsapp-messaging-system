@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, ChangeEvent, useEffect } from 'react';
-import { CheckCircle2, AlertCircle, Send, Users, Clock, Settings, Upload, Trash2, Search, MessageCircle, History, UserPlus, Shield, Edit2, X, LogOut, Lock } from 'lucide-react';
+import { useState, ChangeEvent, useEffect, FormEvent } from 'react';
+import { CheckCircle2, AlertCircle, Send, Users, Clock, Settings, Upload, Trash2, Search, MessageCircle, History, UserPlus, Shield, Edit2, X, LogOut, Lock, Menu, Bell, ChevronRight, Rocket, Smartphone } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -42,6 +42,19 @@ interface Role {
   name: string;
   permissions: string;
   description: string;
+}
+
+interface BulkCampaignStatus {
+  isRunning: boolean;
+  stopRequested: boolean;
+  total: number;
+  processed: number;
+  sent: number;
+  failed: number;
+  startedAt: string | null;
+  endedAt: string | null;
+  messagePreview: string;
+  progress: number;
 }
 
 type Page = 'send-now' | 'bulk-send' | 'schedule' | 'history' | 'settings';
@@ -102,6 +115,8 @@ export default function App() {
   const [editingUser, setEditingUser] = useState<EditableUser | null>(null);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [editingScheduledMessage, setEditingScheduledMessage] = useState<number | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [bulkCampaignStatus, setBulkCampaignStatus] = useState<BulkCampaignStatus | null>(null);
   const itemsPerPage = 10;
 
   const showNotification = (type: 'success' | 'error', message: string) => {
@@ -129,6 +144,19 @@ export default function App() {
     }
   };
 
+  const fetchBulkCampaignStatus = async () => {
+    try {
+      const res = await fetch('/api/bulk-campaign/status', { cache: 'no-store' });
+      if (!res.ok) {
+        return;
+      }
+      const data = await res.json();
+      setBulkCampaignStatus(data);
+    } catch (error) {
+      console.error('Error fetching bulk campaign status:', error);
+    }
+  };
+
   useEffect(() => {
     // Check if user is already logged in
     const savedUser = localStorage.getItem('currentUser');
@@ -147,18 +175,30 @@ export default function App() {
     if (isAuthenticated) {
       fetchMessages();
       fetchScheduledMessages();
+      fetchBulkCampaignStatus();
       fetchSettings();
       fetchUsers();
       fetchRoles();
       const interval = setInterval(() => {
         fetchMessages();
         fetchScheduledMessages();
+        fetchBulkCampaignStatus();
       }, 5000);
       return () => clearInterval(interval);
     }
   }, [isAuthenticated]);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const interval = setInterval(() => {
+      fetchBulkCampaignStatus();
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated]);
+
+  const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
     setIsLoggingIn(true);
     try {
@@ -503,15 +543,44 @@ export default function App() {
   const sendBulk = async () => {
     console.log('Sending bulk:', { bulkNumbers, bulkMessage, delay });
     try {
-      await fetch('/api/send-bulk', {
+      const response = await fetch('/api/send-bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ numbers: bulkNumbers, message: bulkMessage, delay }),
       });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        showNotification('error', data.error || 'Falha ao iniciar envio em massa.');
+        return;
+      }
+
       showNotification('success', 'Envio em massa iniciado!');
+      fetchBulkCampaignStatus();
       fetchMessages();
     } catch {
       showNotification('error', 'Falha ao iniciar envio em massa.');
+    }
+  };
+
+  const stopBulkCampaign = async () => {
+    try {
+      const response = await fetch('/api/bulk-campaign/stop', {
+        method: 'POST',
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        showNotification('error', data.error || 'Não foi possível parar a campanha.');
+        return;
+      }
+
+      showNotification('success', 'Solicitação para parar campanha enviada.');
+      fetchBulkCampaignStatus();
+    } catch {
+      showNotification('error', 'Falha ao parar campanha.');
     }
   };
 
@@ -658,11 +727,11 @@ export default function App() {
   };
 
   const menuItems = [
-    { id: 'send-now' as Page, icon: Send, label: 'Enviar Agora', color: 'text-green-600' },
-    { id: 'bulk-send' as Page, icon: Users, label: 'Envio em Massa', color: 'text-purple-600' },
-    { id: 'schedule' as Page, icon: Clock, label: 'Agendar', color: 'text-blue-600' },
-    { id: 'history' as Page, icon: History, label: 'Histórico', color: 'text-orange-600' },
-    { id: 'settings' as Page, icon: Settings, label: 'Configurações', color: 'text-gray-600' },
+    { id: 'send-now' as Page, icon: Send, label: 'Nova Mensagem', color: 'text-emerald-600', description: 'Compositor individual' },
+    { id: 'bulk-send' as Page, icon: Users, label: 'Campanhas', color: 'text-emerald-600', description: 'Envio em massa' },
+    { id: 'schedule' as Page, icon: Clock, label: 'Agendamentos', color: 'text-emerald-600', description: 'Fila de envio' },
+    { id: 'history' as Page, icon: History, label: 'Histórico', color: 'text-slate-600', description: 'Mensagens enviadas' },
+    { id: 'settings' as Page, icon: Settings, label: 'Configurações', color: 'text-slate-600', description: 'Sistema e acessos' },
   ];
 
   const accessibleMenuItems = menuItems.filter(item => canAccessPage(item.id));
@@ -696,6 +765,10 @@ export default function App() {
     }
   }, [isAuthenticated, activePage, settingsTab, currentUserPermissions.join(',')]);
 
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [activePage]);
+
   const renderPage = () => {
     if (!canAccessPage(activePage)) {
       return (
@@ -710,221 +783,384 @@ export default function App() {
     switch (activePage) {
       case 'send-now':
         return (
-          <div className="bg-white rounded-xl shadow-lg p-8 max-w-2xl mx-auto">
-            <div className="flex items-center gap-3 mb-6">
-              <Send className="w-6 h-6 text-green-600" />
-              <h2 className="text-2xl font-bold text-gray-800">Enviar Mensagem Agora</h2>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nome (opcional)</label>
-                <input 
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition" 
-                  placeholder="Digite o nome do contato" 
-                  value={name} 
-                  onChange={e => setName(e.target.value)} 
-                />
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="xl:col-span-2 space-y-6">
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
+                <h2 className="text-lg sm:text-xl font-black text-slate-900 mb-1">New Message</h2>
+                <p className="text-sm text-slate-500">Envio rápido com preview em tempo real.</p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Número do WhatsApp</label>
-                <input 
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition" 
-                  placeholder="Ex: 5511999999999" 
-                  value={number} 
-                  onChange={e => setNumber(e.target.value)} 
+
+              <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
+                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Recipient Details</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 block mb-2">Nome do contato</label>
+                    <input
+                      className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                      placeholder="Ex: Jane Cooper"
+                      value={name}
+                      onChange={e => setName(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 block mb-2">Número WhatsApp</label>
+                    <input
+                      className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm font-mono focus:border-emerald-500 focus:ring-emerald-500"
+                      placeholder="5511999999999"
+                      value={number}
+                      onChange={e => setNumber(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
+                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Compose Message</h3>
+                <textarea
+                  className="w-full min-h-[220px] rounded-xl border-slate-200 bg-slate-50 text-sm leading-relaxed focus:border-emerald-500 focus:ring-emerald-500"
+                  placeholder="Digite sua mensagem aqui... use {{name}} para personalizar."
+                  value={message}
+                  onChange={e => setMessage(e.target.value)}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Mensagem</label>
-                <textarea 
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition min-h-[150px]" 
-                  placeholder="Digite sua mensagem aqui..." 
-                  value={message} 
-                  onChange={e => setMessage(e.target.value)} 
-                />
-              </div>
-              <button 
-                className="w-full p-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition shadow-md hover:shadow-lg text-lg" 
+                <div className="flex flex-wrap gap-3">
+                  <button className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold text-slate-700">+ Imagem</button>
+                  <button className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold text-slate-700">+ PDF</button>
+                  <button className="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold text-slate-700">+ Vídeo</button>
+                </div>
+              </section>
+
+              <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
+                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400 mb-4">Delivery Schedule</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                    <p className="font-semibold text-slate-900 text-sm">Send Immediately</p>
+                    <p className="text-xs text-slate-500 mt-1">A mensagem será enviada agora.</p>
+                  </div>
+                  <button
+                    onClick={() => setActivePage('schedule')}
+                    className="rounded-xl border border-slate-200 bg-white p-4 text-left hover:border-emerald-300 transition"
+                  >
+                    <p className="font-semibold text-slate-900 text-sm">Schedule for later</p>
+                    <p className="text-xs text-slate-500 mt-1">Ir para a fila de agendamentos.</p>
+                  </button>
+                </div>
+              </section>
+
+              <button
+                className="w-full h-12 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-bold transition flex items-center justify-center gap-2"
                 onClick={sendNow}
               >
-                <Send className="w-5 h-5" />
-                Enviar Mensagem
+                <Rocket className="w-4 h-4" />
+                Send Campaign
               </button>
             </div>
+
+            <aside className="space-y-4">
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                <h3 className="font-bold text-slate-800 mb-4">Campaign Summary</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between"><span className="text-slate-500">Contato</span><span className="font-semibold">{name || 'Não definido'}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Número</span><span className="font-semibold">{number || '-'}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Tipo</span><span className="font-semibold">Texto</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Tamanho</span><span className="font-semibold">{message.length} chars</span></div>
+                </div>
+              </div>
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                <p className="text-xs font-bold tracking-[0.14em] uppercase text-slate-400 mb-4 text-center">Live Preview</p>
+                <div className="max-w-[280px] mx-auto rounded-[2rem] border-[7px] border-slate-800 bg-slate-100 overflow-hidden">
+                  <div className="bg-[#075e54] text-white p-3 text-xs font-semibold">{name || 'Contato'}</div>
+                  <div className="p-3 min-h-[260px] bg-[#e5ddd5]">
+                    <div className="ml-auto max-w-[85%] bg-[#d9fdd3] rounded-lg rounded-tr-sm px-3 py-2 text-xs leading-relaxed text-slate-800 shadow-sm whitespace-pre-wrap">
+                      {message || 'Sua mensagem vai aparecer aqui.'}
+                    </div>
+                  </div>
+                  <div className="h-12 bg-white px-3 flex items-center justify-between text-slate-400">
+                    <Smartphone className="w-4 h-4" />
+                    <div className="h-2 w-32 rounded-full bg-slate-200" />
+                  </div>
+                </div>
+              </div>
+            </aside>
           </div>
         );
 
       case 'bulk-send':
         return (
-          <div className="bg-white rounded-xl shadow-lg p-8 max-w-2xl mx-auto">
-            <div className="flex items-center gap-3 mb-6">
-              <Users className="w-6 h-6 text-purple-600" />
-              <h2 className="text-2xl font-bold text-gray-800">Envio em Massa</h2>
-            </div>
-            <div className="space-y-4">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="xl:col-span-2 space-y-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Arquivo com Números</label>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 hover:border-purple-500 transition bg-gray-50">
-                  <label className="flex flex-col items-center justify-center gap-2 cursor-pointer">
-                    <Upload className="w-8 h-8 text-gray-400" />
-                    <span className="text-sm text-gray-600 font-medium">
-                      {bulkNumbers.length > 0 ? `✓ ${bulkNumbers.length} números carregados` : 'Clique para carregar arquivo .txt'}
-                    </span>
-                    <span className="text-xs text-gray-500">Um número por linha</span>
+                <h2 className="text-3xl font-black text-slate-900">Create New Campaign</h2>
+                <p className="text-slate-500 mt-1">Reach your customers directly on WhatsApp with bulk messaging.</p>
+              </div>
+
+              <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center justify-between">
+                  <h3 className="font-bold text-slate-900">1. Select Target Contacts</h3>
+                  <button className="text-emerald-500 text-sm font-semibold">Download Template CSV</button>
+                </div>
+                <div className="p-5 sm:p-6 space-y-4">
+                  <label className="border-2 border-dashed border-slate-200 rounded-2xl p-8 sm:p-10 text-center bg-slate-50 block cursor-pointer hover:border-emerald-300 transition">
+                    <Upload className="w-10 h-10 mx-auto text-emerald-500 mb-3" />
+                    <p className="font-semibold text-slate-800">Upload CSV ou TXT</p>
+                    <p className="text-sm text-slate-500 mt-1">Arraste o arquivo ou clique para selecionar.</p>
+                    <p className="text-xs text-slate-400 mt-3">Suporte atual: .txt (um número por linha)</p>
                     <input type="file" className="hidden" onChange={handleFileUpload} accept=".txt" />
                   </label>
-                </div>
-              </div>
-              {bulkNumbers.length > 0 && (
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                  <p className="text-sm text-purple-800 font-medium">
-                    📋 {bulkNumbers.length} números prontos para envio
-                  </p>
-                  <div className="mt-2 max-h-32 overflow-y-auto text-xs text-purple-700 font-mono">
-                    {bulkNumbers.slice(0, 5).join(', ')}
-                    {bulkNumbers.length > 5 && '...'}
+
+                  {bulkNumbers.length > 0 && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
+                      <p className="font-semibold text-emerald-800">{bulkNumbers.length} contatos carregados</p>
+                      <p className="text-emerald-700 font-mono text-xs mt-1 break-all">{bulkNumbers.slice(0, 4).join(', ')}{bulkNumbers.length > 4 ? '...' : ''}</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 block mb-2">Selecionar lista existente</label>
+                    <select className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500">
+                      <option>Escolha um grupo...</option>
+                      <option>Clientes recorrentes</option>
+                      <option>Leads qualificados</option>
+                      <option>Carrinho abandonado</option>
+                    </select>
                   </div>
                 </div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Mensagem</label>
-                <textarea 
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition min-h-[150px]" 
-                  placeholder="Digite a mensagem que será enviada para todos os números..." 
-                  value={bulkMessage} 
-                  onChange={e => setBulkMessage(e.target.value)} 
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Intervalo entre mensagens
-                </label>
-                <div className="flex items-center gap-3">
-                  <input 
-                    type="number" 
-                    className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition" 
-                    value={delay} 
-                    onChange={e => setDelay(Number(e.target.value))} 
-                    min="1" 
-                  />
-                  <span className="text-sm text-gray-600 font-medium">segundos</span>
+              </section>
+
+              <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-5 sm:p-6 border-b border-slate-100">
+                  <h3 className="font-bold text-slate-900">2. Compose Message</h3>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">Tempo de espera entre cada envio para evitar bloqueios</p>
-              </div>
-              <div className="flex gap-2">
-                <button 
-                  className="flex-1 p-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed text-lg" 
-                  onClick={sendBulk} 
-                  disabled={bulkNumbers.length === 0}
+                <div className="p-5 sm:p-6 grid gap-4">
+                  <textarea
+                    className="w-full min-h-[170px] rounded-xl border-slate-200 bg-slate-50 text-sm leading-relaxed focus:border-emerald-500 focus:ring-emerald-500"
+                    placeholder="Mensagem para todos os contatos... use {{name}} para personalizar."
+                    value={bulkMessage}
+                    onChange={e => setBulkMessage(e.target.value)}
+                  />
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 block mb-2">Intervalo entre mensagens</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                        value={delay}
+                        onChange={e => setDelay(Number(e.target.value))}
+                        min="1"
+                      />
+                      <span className="text-sm text-slate-500">segundos</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-5 sm:p-6 border-b border-slate-100">
+                  <h3 className="font-bold text-slate-900">3. Schedule Campaign</h3>
+                </div>
+                <div className="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                    <p className="font-semibold text-slate-900">Send immediately</p>
+                    <p className="text-xs text-slate-500 mt-1">As mensagens começam após o lançamento.</p>
+                  </div>
+                  <button
+                    onClick={() => setActivePage('schedule')}
+                    className="rounded-xl border border-slate-200 p-4 text-left hover:border-emerald-300 transition"
+                  >
+                    <p className="font-semibold text-slate-900">Schedule for later</p>
+                    <p className="text-xs text-slate-500 mt-1">Gerencie horários na tela de agendamento.</p>
+                  </button>
+                </div>
+              </section>
+
+              {bulkCampaignStatus && bulkCampaignStatus.total > 0 && (
+                <section className={`rounded-2xl border p-4 sm:p-5 ${bulkCampaignStatus.isRunning ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <p className="font-bold text-slate-900 text-sm">
+                      {bulkCampaignStatus.isRunning ? 'Campanha em andamento' : 'Última campanha finalizada'}
+                    </p>
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${bulkCampaignStatus.isRunning ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                      {bulkCampaignStatus.isRunning
+                        ? (bulkCampaignStatus.stopRequested ? 'Parando...' : 'Rodando')
+                        : 'Concluída'}
+                    </span>
+                  </div>
+
+                  <div className="h-2 w-full rounded-full bg-white/80 border border-slate-200 overflow-hidden">
+                    <div
+                      className={`h-full transition-all ${bulkCampaignStatus.isRunning ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                      style={{ width: `${bulkCampaignStatus.progress}%` }}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 text-xs sm:text-sm">
+                    <div><p className="text-slate-500">Processadas</p><p className="font-bold text-slate-900">{bulkCampaignStatus.processed}/{bulkCampaignStatus.total}</p></div>
+                    <div><p className="text-slate-500">Enviadas</p><p className="font-bold text-emerald-700">{bulkCampaignStatus.sent}</p></div>
+                    <div><p className="text-slate-500">Falhas</p><p className="font-bold text-red-600">{bulkCampaignStatus.failed}</p></div>
+                    <div><p className="text-slate-500">Progresso</p><p className="font-bold text-slate-900">{bulkCampaignStatus.progress}%</p></div>
+                  </div>
+                </section>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  className="flex-1 h-12 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-bold transition disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  onClick={sendBulk}
+                  disabled={bulkNumbers.length === 0 || !!bulkCampaignStatus?.isRunning}
                 >
-                  <Users className="w-5 h-5" />
-                  Iniciar Envio ({bulkNumbers.length})
+                  <Rocket className="w-4 h-4" />
+                  {bulkCampaignStatus?.isRunning ? 'Campanha em execução' : `Launch Campaign (${bulkNumbers.length})`}
                 </button>
-                <button 
-                  className="p-4 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" 
-                  onClick={() => setBulkNumbers([])} 
-                  disabled={bulkNumbers.length === 0}
+                <button
+                  className="h-12 px-5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold transition disabled:opacity-60"
+                  onClick={() => setBulkNumbers([])}
+                  disabled={bulkNumbers.length === 0 || !!bulkCampaignStatus?.isRunning}
                 >
-                  <Trash2 className="w-5 h-5" />
+                  Limpar Lista
+                </button>
+                <button
+                  className="h-12 px-5 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold transition disabled:opacity-60 disabled:cursor-not-allowed"
+                  onClick={stopBulkCampaign}
+                  disabled={!bulkCampaignStatus?.isRunning || !!bulkCampaignStatus?.stopRequested}
+                >
+                  {bulkCampaignStatus?.stopRequested ? 'Parando...' : 'Parar Campanha'}
                 </button>
               </div>
             </div>
+
+            <aside className="space-y-6">
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                <h3 className="font-bold text-slate-800 mb-4">Campaign Summary</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between"><span className="text-slate-500">Audience</span><span className="font-semibold">{bulkCampaignStatus?.isRunning ? bulkCampaignStatus.total : bulkNumbers.length} contatos</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Message Type</span><span className="font-semibold">Text</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Delay</span><span className="font-semibold">{delay}s</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Status</span><span className="font-semibold">{bulkCampaignStatus?.isRunning ? 'Em andamento' : 'Parada'}</span></div>
+                  <div className="pt-3 border-t border-slate-100 flex justify-between text-base">
+                    <span className="font-semibold text-slate-900">Progresso</span>
+                    <span className="font-black text-emerald-600">{bulkCampaignStatus?.progress ?? 0}%</span>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-500">PREVIEW</div>
+                <div className="p-4 bg-[#e5ddd5] min-h-[260px] flex items-end">
+                  <div className="bg-white rounded-lg rounded-tl-none shadow-sm p-3 max-w-[90%]">
+                    <p className="text-sm text-slate-800 break-words">{bulkMessage || 'Prévia da mensagem da campanha.'}</p>
+                    <p className="text-[10px] text-slate-400 text-right mt-1">10:45</p>
+                  </div>
+                </div>
+              </div>
+            </aside>
           </div>
         );
 
       case 'schedule':
         return (
-          <div className="bg-white rounded-xl shadow-lg p-8 max-w-2xl mx-auto">
-            <div className="flex items-center gap-3 mb-6">
-              <Clock className="w-6 h-6 text-blue-600" />
-              <h2 className="text-2xl font-bold text-gray-800">
-                {editingScheduledMessage ? 'Editar Mensagem Agendada' : 'Agendar Mensagem'}
-              </h2>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nome (opcional)</label>
-                <input 
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" 
-                  placeholder="Digite o nome do contato" 
-                  value={scheduledName} 
-                  onChange={e => setScheduledName(e.target.value)} 
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Número do WhatsApp</label>
-                <input 
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" 
-                  placeholder="Ex: 5511999999999" 
-                  value={scheduledNumber} 
-                  onChange={e => setScheduledNumber(e.target.value)} 
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Mensagem</label>
-                <textarea 
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition min-h-[150px]" 
-                  placeholder="Digite a mensagem a ser agendada..." 
-                  value={scheduledMessage} 
-                  onChange={e => setScheduledMessage(e.target.value)} 
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Data e Hora do Envio</label>
-                <input 
-                  type="datetime-local" 
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" 
-                  value={scheduledAt} 
-                  onChange={e => setScheduledAt(e.target.value)} 
-                />
-              </div>
-              <div className="flex gap-3">
-                <button 
-                  className="flex-1 p-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition shadow-md hover:shadow-lg text-lg" 
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="text-xl sm:text-2xl font-black text-slate-900">
+                    {editingScheduledMessage ? 'Editar Agendamento' : 'Schedule Campaign'}
+                  </h2>
+                  {editingScheduledMessage && (
+                    <button
+                      className="px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-semibold"
+                      onClick={cancelEditScheduledMessage}
+                    >
+                      Cancelar edição
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 block mb-2">Nome</label>
+                    <input
+                      className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                      value={scheduledName}
+                      onChange={e => setScheduledName(e.target.value)}
+                      placeholder="Nome do contato"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 block mb-2">Número</label>
+                    <input
+                      className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm font-mono focus:border-emerald-500 focus:ring-emerald-500"
+                      value={scheduledNumber}
+                      onChange={e => setScheduledNumber(e.target.value)}
+                      placeholder="5511999999999"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-slate-700 block mb-2">Mensagem</label>
+                  <textarea
+                    className="w-full min-h-[140px] rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                    value={scheduledMessage}
+                    onChange={e => setScheduledMessage(e.target.value)}
+                    placeholder="Mensagem do agendamento"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-slate-700 block mb-2">Data e hora</label>
+                  <input
+                    type="datetime-local"
+                    className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
+                    value={scheduledAt}
+                    onChange={e => setScheduledAt(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  className="w-full h-12 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-bold transition flex items-center justify-center gap-2"
                   onClick={scheduleMessage}
                 >
-                  <Clock className="w-5 h-5" />
-                  {editingScheduledMessage ? 'Atualizar Mensagem' : 'Agendar Mensagem'}
+                  <Clock className="w-4 h-4" />
+                  {editingScheduledMessage ? 'Atualizar Agendamento' : 'Salvar Agendamento'}
                 </button>
-                {editingScheduledMessage && (
-                  <button 
-                    className="p-4 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition shadow-md hover:shadow-lg" 
-                    onClick={cancelEditScheduledMessage}
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                )}
               </div>
+
+              <aside className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 h-fit">
+                <h3 className="font-bold text-slate-900 mb-4">Resumo</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between"><span className="text-slate-500">Fila total</span><span className="font-semibold">{scheduledMessages.length}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Timezone</span><span className="font-semibold">{timezone}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Status edição</span><span className="font-semibold">{editingScheduledMessage ? 'Ativa' : 'Nova'}</span></div>
+                </div>
+              </aside>
             </div>
             
-            <div className="mt-8 border-t pt-6">
-              <h3 className="font-semibold text-gray-800 mb-4 text-lg">Mensagens Agendadas ({scheduledMessages.length})</h3>
-              <div className="overflow-x-auto">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
+              <h3 className="font-semibold text-slate-800 mb-4 text-lg">Mensagens Agendadas ({scheduledMessages.length})</h3>
+              <div className="overflow-x-auto -mx-4 sm:mx-0">
                 <table className="w-full">
                   <thead>
-                    <tr className="border-b-2 border-gray-200 bg-blue-50">
-                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Nome</th>
-                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Número</th>
-                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Mensagem</th>
-                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Hora Agendada</th>
-                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Status</th>
-                      <th className="p-3 text-center text-sm font-semibold text-gray-700">Ações</th>
+                    <tr className="border-b border-slate-200 bg-slate-50">
+                      <th className="p-3 text-left text-xs sm:text-sm font-semibold text-slate-700">Nome</th>
+                      <th className="p-3 text-left text-xs sm:text-sm font-semibold text-slate-700">Número</th>
+                      <th className="p-3 text-left text-xs sm:text-sm font-semibold text-slate-700">Mensagem</th>
+                      <th className="p-3 text-left text-xs sm:text-sm font-semibold text-slate-700">Hora</th>
+                      <th className="p-3 text-left text-xs sm:text-sm font-semibold text-slate-700">Status</th>
+                      <th className="p-3 text-center text-xs sm:text-sm font-semibold text-slate-700">Ações</th>
                     </tr>
                   </thead>
                   <tbody>
                     {scheduledMessages.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="p-4 text-center text-sm text-gray-500">
+                        <td colSpan={6} className="p-4 text-center text-sm text-slate-500">
                           Nenhum agendamento encontrado.
                         </td>
                       </tr>
                     ) : (
                       scheduledMessages.map(msg => (
-                        <tr key={msg.id} className="border-b border-gray-100 hover:bg-blue-50 transition">
-                          <td className="p-3 text-sm text-gray-700">{msg.name || '-'}</td>
-                          <td className="p-3 text-sm text-gray-700 font-mono">{msg.number}</td>
-                          <td className="p-3 text-sm text-gray-600 max-w-xs truncate">{msg.message}</td>
-                          <td className="p-3 text-sm text-gray-500">
+                        <tr key={msg.id} className="border-b border-slate-100 hover:bg-slate-50 transition">
+                          <td className="p-3 text-sm text-slate-700">{msg.name || '-'}</td>
+                          <td className="p-3 text-sm text-slate-700 font-mono">{msg.number}</td>
+                          <td className="p-3 text-sm text-slate-600 max-w-xs truncate">{msg.message}</td>
+                          <td className="p-3 text-sm text-slate-500 whitespace-nowrap">
                             {new Date(msg.scheduled_at.includes('Z') || msg.scheduled_at.includes('+') ? msg.scheduled_at : msg.scheduled_at + 'Z').toLocaleString('pt-BR', {
                               timeZone: timezone,
                               day: '2-digit',
@@ -936,7 +1172,7 @@ export default function App() {
                           </td>
                           <td className="p-3">
                             <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                              msg.status === 'Agendado' ? 'bg-blue-100 text-blue-700' : 
+                              msg.status === 'Agendado' ? 'bg-emerald-100 text-emerald-700' : 
                               msg.status === 'Enviado' ? 'bg-green-100 text-green-700' : 
                               'bg-yellow-100 text-yellow-700'
                             }`}>
@@ -947,7 +1183,7 @@ export default function App() {
                             <div className="flex items-center justify-center gap-2">
                               <button
                                 onClick={() => editScheduledMessage(msg)}
-                                className="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition shadow-sm"
+                                className="p-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg transition shadow-sm"
                                 title="Editar"
                               >
                                 <Edit2 className="w-4 h-4" />
@@ -1626,35 +1862,31 @@ export default function App() {
   // Login screen
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
         {notification && (
-          <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg flex items-center gap-3 z-50 animate-in slide-in-from-top ${notification.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-500 text-white'}`}>
+          <div className={`fixed top-4 right-4 p-4 rounded-xl shadow-lg flex items-center gap-3 z-50 ${notification.type === 'success' ? 'bg-emerald-500 text-slate-900' : 'bg-red-500 text-white'}`}>
             {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
             <span className="font-medium">{notification.message}</span>
           </div>
         )}
 
-        <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
-          {/* Logo/Header */}
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-xl p-6 sm:p-8 w-full max-w-md">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 rounded-full mb-4">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-500 rounded-2xl mb-4">
               <MessageCircle className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">WhatsApp Manager</h1>
-            <p className="text-gray-600">Faça login para continuar</p>
+            <h1 className="text-3xl font-black text-slate-900 mb-2">WBM Pro</h1>
+            <p className="text-slate-500">Faça login para continuar</p>
           </div>
 
-          {/* Login Form */}
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email
-              </label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
               <input
                 type="email"
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                className="w-full px-4 py-3 border border-slate-200 bg-slate-50 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
                 placeholder="seu@email.com"
                 required
                 disabled={isLoggingIn}
@@ -1662,14 +1894,12 @@ export default function App() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Senha
-              </label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Senha</label>
               <input
                 type="password"
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                className="w-full px-4 py-3 border border-slate-200 bg-slate-50 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
                 placeholder="••••••••"
                 required
                 disabled={isLoggingIn}
@@ -1679,7 +1909,7 @@ export default function App() {
             <button
               type="submit"
               disabled={isLoggingIn}
-              className="w-full bg-gradient-to-r from-green-600 to-green-700 text-white py-3 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full bg-emerald-500 text-slate-900 py-3 rounded-xl font-bold hover:bg-emerald-600 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {isLoggingIn ? (
                 <>
@@ -1695,7 +1925,7 @@ export default function App() {
             </button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-gray-600">
+          <div className="mt-6 text-center text-sm text-slate-500">
             <p>Use suas credenciais cadastradas no sistema</p>
           </div>
         </div>
@@ -1704,37 +1934,36 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 flex">
+    <div className="min-h-screen bg-slate-100 flex">
       {notification && (
-        <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg flex items-center gap-3 z-50 animate-in slide-in-from-top ${notification.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-500 text-white'}`}>
+        <div className={`fixed top-4 right-4 p-4 rounded-xl shadow-lg flex items-center gap-3 z-50 ${notification.type === 'success' ? 'bg-emerald-500 text-slate-900' : 'bg-red-500 text-white'}`}>
           {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
           <span className="font-medium">{notification.message}</span>
         </div>
       )}
 
-      {/* Sidebar Menu */}
-      <div className="w-64 bg-white shadow-xl min-h-screen flex flex-col">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-6">
+      <aside className="hidden md:flex w-72 bg-white border-r border-slate-200 min-h-screen flex-col">
+        <div className="p-6 border-b border-slate-200">
           <div className="flex items-center gap-3 mb-4">
-            <MessageCircle className="w-8 h-8" />
+            <div className="w-10 h-10 rounded-xl bg-emerald-500 text-slate-900 flex items-center justify-center">
+              <MessageCircle className="w-6 h-6" />
+            </div>
             <div>
-              <h1 className="text-xl font-bold">WhatsApp</h1>
-              <p className="text-green-100 text-xs">Manager</p>
+              <h1 className="text-xl font-black text-slate-900">WBM Pro</h1>
+              <p className="text-xs text-slate-500">Business Messaging</p>
             </div>
           </div>
           {currentUser && (
-            <div className="pt-3 border-t border-green-500/30">
-              <p className="text-sm text-green-100">Olá,</p>
-              <p className="text-sm font-semibold truncate">{currentUser.username}</p>
-              <p className="text-xs text-green-200 truncate">{currentUser.email}</p>
+            <div className="pt-3 border-t border-slate-200">
+              <p className="text-xs text-slate-500">Logado como</p>
+              <p className="text-sm font-semibold text-slate-800 truncate">{currentUser.username}</p>
+              <p className="text-xs text-slate-500 truncate">{currentUser.email}</p>
             </div>
           )}
         </div>
 
-        {/* Menu Items */}
-        <nav className="p-4 flex-1">
-          <ul className="space-y-2">
+        <nav className="p-4 flex-1 overflow-y-auto">
+          <ul className="space-y-1">
             {accessibleMenuItems.map(item => {
               const Icon = item.icon;
               const isActive = activePage === item.id;
@@ -1742,14 +1971,20 @@ export default function App() {
                 <li key={item.id}>
                   <button
                     onClick={() => setActivePage(item.id)}
-                    className={`w-full flex items-center gap-3 p-3 rounded-lg transition ${
+                    className={`w-full flex items-center justify-between gap-3 p-3 rounded-xl transition ${
                       isActive 
-                        ? 'bg-green-100 text-green-700 font-semibold' 
-                        : 'text-gray-700 hover:bg-gray-100'
+                        ? 'bg-emerald-50 text-emerald-700' 
+                        : 'text-slate-700 hover:bg-slate-100'
                     }`}
                   >
-                    <Icon className={`w-5 h-5 ${isActive ? 'text-green-600' : item.color}`} />
-                    <span>{item.label}</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-emerald-600' : item.color}`} />
+                      <div className="text-left min-w-0">
+                        <p className={`text-sm font-semibold truncate ${isActive ? 'text-emerald-700' : 'text-slate-700'}`}>{item.label}</p>
+                        <p className="text-[11px] text-slate-400 truncate">{item.description}</p>
+                      </div>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 ${isActive ? 'text-emerald-500' : 'text-slate-300'}`} />
                   </button>
                 </li>
               );
@@ -1757,22 +1992,98 @@ export default function App() {
           </ul>
         </nav>
 
-        {/* Logout Button */}
-        <div className="p-4 border-t border-gray-200">
+        <div className="p-4 border-t border-slate-200">
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 p-3 rounded-lg text-red-600 hover:bg-red-50 transition font-medium"
+            className="w-full flex items-center gap-3 p-3 rounded-xl text-red-600 hover:bg-red-50 transition font-medium"
           >
             <LogOut className="w-5 h-5" />
             <span>Sair</span>
           </button>
         </div>
+      </aside>
+
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <button className="absolute inset-0 bg-black/30" onClick={() => setIsMobileMenuOpen(false)} aria-label="Fechar menu" />
+          <div className="absolute left-0 top-0 h-full w-72 bg-white border-r border-slate-200 p-4 flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-slate-900">
+                  <MessageCircle className="w-4 h-4" />
+                </div>
+                <p className="font-black text-slate-900">WBM Pro</p>
+              </div>
+              <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 rounded-lg hover:bg-slate-100">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <nav className="space-y-1 flex-1">
+              {accessibleMenuItems.map(item => {
+                const Icon = item.icon;
+                const isActive = activePage === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActivePage(item.id)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl ${isActive ? 'bg-emerald-50 text-emerald-700' : 'text-slate-700 hover:bg-slate-100'}`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span className="text-sm font-semibold">{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+            <button onClick={handleLogout} className="w-full mt-4 p-3 rounded-xl bg-red-50 text-red-600 font-semibold">Sair</button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 min-w-0 flex flex-col">
+        <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30">
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 rounded-lg hover:bg-slate-100">
+              <Menu className="w-5 h-5 text-slate-700" />
+            </button>
+            <div className="min-w-0">
+              <p className="text-xs text-slate-400 font-semibold uppercase tracking-[0.12em]">Dashboard</p>
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 truncate">{menuItems.find(item => item.id === activePage)?.label || 'Painel'}</h2>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500">
+              <Bell className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setActivePage('bulk-send')}
+              className="h-10 px-3 sm:px-4 rounded-xl bg-emerald-500 text-slate-900 font-bold text-sm"
+            >
+              Send Campaign
+            </button>
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 pb-24 md:pb-8">
+          {renderPage()}
+        </main>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 p-8 overflow-y-auto">
-        {renderPage()}
-      </div>
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-30 px-2 py-2 grid grid-cols-5 gap-1">
+        {accessibleMenuItems.slice(0, 5).map(item => {
+          const Icon = item.icon;
+          const isActive = activePage === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActivePage(item.id)}
+              className={`h-14 rounded-xl flex flex-col items-center justify-center gap-1 text-[10px] font-semibold ${isActive ? 'bg-emerald-50 text-emerald-700' : 'text-slate-500'}`}
+            >
+              <Icon className="w-4 h-4" />
+              <span className="truncate max-w-full px-1">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }
