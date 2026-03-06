@@ -53,6 +53,19 @@ try {
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
   console.log('Available tables:', tables.map((t: any) => t.name).join(', '));
   
+  // Create default admin user if no users exist
+  const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get() as any;
+  if (userCount.count === 0) {
+    console.log('Creating default admin user...');
+    db.prepare("INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)").run(
+      'admin',
+      'admin@admin.com',
+      'admin123',
+      'admin'
+    );
+    console.log('✓ Default admin user created (email: admin@admin.com, password: admin123)');
+  }
+  
 } catch (error) {
   console.error('Error creating database tables:', error);
   throw error;
@@ -180,6 +193,44 @@ app.post("/api/schedule", (req, res) => {
 app.get("/api/scheduled-messages", (req, res) => {
   const messages = db.prepare("SELECT * FROM scheduled_messages").all();
   res.json(messages);
+});
+
+// Authentication route
+app.post("/api/login", (req, res) => {
+  try {
+    const { email, password } = req.body;
+    console.log('POST /api/login - Login attempt:', email);
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email e senha são obrigatórios' });
+    }
+    
+    // Find user by email (in production, passwords should be hashed)
+    const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email) as any;
+    
+    if (!user) {
+      console.log('Login failed: User not found');
+      return res.status(401).json({ error: 'Email ou senha inválidos' });
+    }
+    
+    // Check password (in production, use bcrypt.compare)
+    if (user.password !== password) {
+      console.log('Login failed: Invalid password');
+      return res.status(401).json({ error: 'Email ou senha inválidos' });
+    }
+    
+    console.log('Login successful:', user.username);
+    
+    // Return user data without password
+    const { password: _, ...userWithoutPassword } = user;
+    return res.json({ 
+      success: true,
+      user: userWithoutPassword
+    });
+  } catch (error: any) {
+    console.error('Error during login:', error.message);
+    return res.status(500).json({ error: 'Erro ao fazer login' });
+  }
 });
 
 // Users routes

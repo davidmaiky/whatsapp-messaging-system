@@ -4,7 +4,7 @@
  */
 
 import { useState, ChangeEvent, useEffect } from 'react';
-import { CheckCircle2, AlertCircle, Send, Users, Clock, Settings, Upload, Trash2, Search, MessageCircle, History, UserPlus, Shield, Edit2, X } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Send, Users, Clock, Settings, Upload, Trash2, Search, MessageCircle, History, UserPlus, Shield, Edit2, X, LogOut, Lock } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -54,6 +54,11 @@ const availablePermissions = [
 ];
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [activePage, setActivePage] = useState<Page>('send-now');
   const [name, setName] = useState('');
   const [number, setNumber] = useState('');
@@ -99,17 +104,70 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchMessages();
-    fetchScheduledMessages();
-    fetchSettings();
-    fetchUsers();
-    fetchRoles();
-    const interval = setInterval(() => {
+    // Check if user is already logged in
+    const savedUser = localStorage.getItem('currentUser');
+    if (savedUser) {
+      try {
+        const user = JSON.parse(savedUser);
+        setCurrentUser(user);
+        setIsAuthenticated(true);
+      } catch (e) {
+        localStorage.removeItem('currentUser');
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticated) {
       fetchMessages();
       fetchScheduledMessages();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
+      fetchSettings();
+      fetchUsers();
+      fetchRoles();
+      const interval = setInterval(() => {
+        fetchMessages();
+        fetchScheduledMessages();
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [isAuthenticated]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoggingIn(true);
+    try {
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        showNotification('error', error.error || 'Credenciais inválidas');
+        return;
+      }
+      
+      const data = await response.json();
+      setCurrentUser(data.user);
+      setIsAuthenticated(true);
+      localStorage.setItem('currentUser', JSON.stringify(data.user));
+      showNotification('success', `Bem-vindo, ${data.user.username}!`);
+      setLoginEmail('');
+      setLoginPassword('');
+    } catch (error) {
+      showNotification('error', 'Erro ao fazer login');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    localStorage.removeItem('currentUser');
+    showNotification('success', 'Logout realizado com sucesso');
+  };
 
   const fetchSettings = async () => {
     const res = await fetch('/api/settings');
@@ -1026,6 +1084,86 @@ export default function App() {
     }
   };
 
+  // Login screen
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 flex items-center justify-center p-4">
+        {notification && (
+          <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg flex items-center gap-3 z-50 animate-in slide-in-from-top ${notification.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-500 text-white'}`}>
+            {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+            <span className="font-medium">{notification.message}</span>
+          </div>
+        )}
+
+        <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+          {/* Logo/Header */}
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 rounded-full mb-4">
+              <MessageCircle className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">WhatsApp Manager</h1>
+            <p className="text-gray-600">Faça login para continuar</p>
+          </div>
+
+          {/* Login Form */}
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Email
+              </label>
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                placeholder="seu@email.com"
+                required
+                disabled={isLoggingIn}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Senha
+              </label>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                placeholder="••••••••"
+                required
+                disabled={isLoggingIn}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoggingIn}
+              className="w-full bg-gradient-to-r from-green-600 to-green-700 text-white py-3 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isLoggingIn ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Entrando...</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-5 h-5" />
+                  <span>Entrar</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center text-sm text-gray-600">
+            <p>Use suas credenciais cadastradas no sistema</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50 flex">
       {notification && (
@@ -1036,20 +1174,27 @@ export default function App() {
       )}
 
       {/* Sidebar Menu */}
-      <div className="w-64 bg-white shadow-xl min-h-screen">
+      <div className="w-64 bg-white shadow-xl min-h-screen flex flex-col">
         {/* Header */}
         <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-6">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 mb-4">
             <MessageCircle className="w-8 h-8" />
             <div>
               <h1 className="text-xl font-bold">WhatsApp</h1>
               <p className="text-green-100 text-xs">Manager</p>
             </div>
           </div>
+          {currentUser && (
+            <div className="pt-3 border-t border-green-500/30">
+              <p className="text-sm text-green-100">Olá,</p>
+              <p className="text-sm font-semibold truncate">{currentUser.username}</p>
+              <p className="text-xs text-green-200 truncate">{currentUser.email}</p>
+            </div>
+          )}
         </div>
 
         {/* Menu Items */}
-        <nav className="p-4">
+        <nav className="p-4 flex-1">
           <ul className="space-y-2">
             {menuItems.map(item => {
               const Icon = item.icon;
@@ -1072,6 +1217,17 @@ export default function App() {
             })}
           </ul>
         </nav>
+
+        {/* Logout Button */}
+        <div className="p-4 border-t border-gray-200">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 p-3 rounded-lg text-red-600 hover:bg-red-50 transition font-medium"
+          >
+            <LogOut className="w-5 h-5" />
+            <span>Sair</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Content */}
