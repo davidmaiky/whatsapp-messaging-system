@@ -909,12 +909,12 @@ export default function App() {
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             <div className="xl:col-span-2 space-y-6">
               <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm">
-                <h2 className="text-lg sm:text-xl font-black text-slate-900 mb-1">New Message</h2>
+                <h2 className="text-lg sm:text-xl font-black text-slate-900 mb-1">Nova Mensagem</h2>
                 <p className="text-sm text-slate-500">Envio rápido com preview em tempo real.</p>
               </div>
 
               <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
-                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Recipient Details</h3>
+                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Detalhes do Destinatário</h3>
                 <div>
                   <label className="text-sm font-medium text-slate-700 block mb-2">Selecionar contato salvo</label>
                   <select
@@ -935,7 +935,7 @@ export default function App() {
                     <label className="text-sm font-medium text-slate-700 block mb-2">Nome do contato</label>
                     <input
                       className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
-                      placeholder="Ex: Jane Cooper"
+                      placeholder="Ex: João Silva"
                       value={name}
                       onChange={e => setName(e.target.value)}
                     />
@@ -953,7 +953,7 @@ export default function App() {
               </section>
 
               <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
-                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Compose Message</h3>
+                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Escrever Mensagem</h3>
                 <textarea
                   className="w-full min-h-[220px] rounded-xl border-slate-200 bg-slate-50 text-sm leading-relaxed focus:border-emerald-500 focus:ring-emerald-500"
                   placeholder="Digite sua mensagem aqui... use {{name}} para personalizar."
@@ -968,17 +968,17 @@ export default function App() {
               </section>
 
               <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
-                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400 mb-4">Delivery Schedule</h3>
+                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400 mb-4">Agendamento de Envio</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                    <p className="font-semibold text-slate-900 text-sm">Send Immediately</p>
+                    <p className="font-semibold text-slate-900 text-sm">Enviar Imediatamente</p>
                     <p className="text-xs text-slate-500 mt-1">A mensagem será enviada agora.</p>
                   </div>
                   <button
                     onClick={() => setActivePage('schedule')}
                     className="rounded-xl border border-slate-200 bg-white p-4 text-left hover:border-emerald-300 transition"
                   >
-                    <p className="font-semibold text-slate-900 text-sm">Schedule for later</p>
+                    <p className="font-semibold text-slate-900 text-sm">Agendar para depois</p>
                     <p className="text-xs text-slate-500 mt-1">Ir para a fila de agendamentos.</p>
                   </button>
                 </div>
@@ -989,22 +989,22 @@ export default function App() {
                 onClick={sendNow}
               >
                 <Rocket className="w-4 h-4" />
-                Send Campaign
+                Enviar Campanha
               </button>
             </div>
 
             <aside className="space-y-4">
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-                <h3 className="font-bold text-slate-800 mb-4">Campaign Summary</h3>
+                <h3 className="font-bold text-slate-800 mb-4">Resumo da Campanha</h3>
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between"><span className="text-slate-500">Contato</span><span className="font-semibold">{name || 'Não definido'}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Número</span><span className="font-semibold">{number || '-'}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Tipo</span><span className="font-semibold">Texto</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Tamanho</span><span className="font-semibold">{message.length} chars</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Tamanho</span><span className="font-semibold">{message.length} caracteres</span></div>
                 </div>
               </div>
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-                <p className="text-xs font-bold tracking-[0.14em] uppercase text-slate-400 mb-4 text-center">Live Preview</p>
+                <p className="text-xs font-bold tracking-[0.14em] uppercase text-slate-400 mb-4 text-center">Pré-visualização ao Vivo</p>
                 <div className="max-w-[280px] mx-auto rounded-[2rem] border-[7px] border-slate-800 bg-slate-100 overflow-hidden">
                   <div className="bg-[#075e54] text-white p-3 text-xs font-semibold">{name || 'Contato'}</div>
                   <div className="p-3 min-h-[260px] bg-[#e5ddd5]">
@@ -1027,14 +1027,14 @@ export default function App() {
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             <div className="xl:col-span-2 space-y-6">
               <div>
-                <h2 className="text-3xl font-black text-slate-900">Create New Campaign</h2>
-                <p className="text-slate-500 mt-1">Reach your customers directly on WhatsApp with bulk messaging.</p>
+                <h2 className="text-3xl font-black text-slate-900">Criar Nova Campanha</h2>
+                <p className="text-slate-500 mt-1">Alcance seus clientes diretamente no WhatsApp com envio em massa.</p>
               </div>
 
               <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center justify-between">
-                  <h3 className="font-bold text-slate-900">1. Select Target Contacts</h3>
-                  <button className="text-emerald-500 text-sm font-semibold">Download Template CSV</button>
+                  <h3 className="font-bold text-slate-900">1. Selecionar Contatos Alvo</h3>
+                  <button className="text-emerald-500 text-sm font-semibold">Baixar Modelo CSV</button>
                 </div>
                 <div className="p-5 sm:p-6 space-y-4">
                   <label className="border-2 border-dashed border-slate-200 rounded-2xl p-8 sm:p-10 text-center bg-slate-50 block cursor-pointer hover:border-emerald-300 transition">
@@ -1074,7 +1074,7 @@ export default function App() {
 
               <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-5 sm:p-6 border-b border-slate-100">
-                  <h3 className="font-bold text-slate-900">2. Compose Message</h3>
+                  <h3 className="font-bold text-slate-900">2. Escrever Mensagem</h3>
                 </div>
                 <div className="p-5 sm:p-6 grid gap-4">
                   <textarea
@@ -1101,18 +1101,18 @@ export default function App() {
 
               <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-5 sm:p-6 border-b border-slate-100">
-                  <h3 className="font-bold text-slate-900">3. Schedule Campaign</h3>
+                  <h3 className="font-bold text-slate-900">3. Agendar Campanha</h3>
                 </div>
                 <div className="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                    <p className="font-semibold text-slate-900">Send immediately</p>
+                    <p className="font-semibold text-slate-900">Enviar imediatamente</p>
                     <p className="text-xs text-slate-500 mt-1">As mensagens começam após o lançamento.</p>
                   </div>
                   <button
                     onClick={() => setActivePage('schedule')}
                     className="rounded-xl border border-slate-200 p-4 text-left hover:border-emerald-300 transition"
                   >
-                    <p className="font-semibold text-slate-900">Schedule for later</p>
+                    <p className="font-semibold text-slate-900">Agendar para depois</p>
                     <p className="text-xs text-slate-500 mt-1">Gerencie horários na tela de agendamento.</p>
                   </button>
                 </div>
@@ -1154,7 +1154,7 @@ export default function App() {
                   disabled={bulkNumbers.length === 0 || !!bulkCampaignStatus?.isRunning}
                 >
                   <Rocket className="w-4 h-4" />
-                  {bulkCampaignStatus?.isRunning ? 'Campanha em execução' : `Launch Campaign (${bulkNumbers.length})`}
+                  {bulkCampaignStatus?.isRunning ? 'Campanha em execução' : `Iniciar Campanha (${bulkNumbers.length})`}
                 </button>
                 <button
                   className="h-12 px-5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold transition disabled:opacity-60"
@@ -1175,11 +1175,11 @@ export default function App() {
 
             <aside className="space-y-6">
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-                <h3 className="font-bold text-slate-800 mb-4">Campaign Summary</h3>
+                <h3 className="font-bold text-slate-800 mb-4">Resumo da Campanha</h3>
                 <div className="space-y-3 text-sm">
-                  <div className="flex justify-between"><span className="text-slate-500">Audience</span><span className="font-semibold">{bulkCampaignStatus?.isRunning ? bulkCampaignStatus.total : bulkNumbers.length} contatos</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Message Type</span><span className="font-semibold">Text</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Delay</span><span className="font-semibold">{delay}s</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Público</span><span className="font-semibold">{bulkCampaignStatus?.isRunning ? bulkCampaignStatus.total : bulkNumbers.length} contatos</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Tipo de Mensagem</span><span className="font-semibold">Texto</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Intervalo</span><span className="font-semibold">{delay}s</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Status</span><span className="font-semibold">{bulkCampaignStatus?.isRunning ? 'Em andamento' : 'Parada'}</span></div>
                   <div className="pt-3 border-t border-slate-100 flex justify-between text-base">
                     <span className="font-semibold text-slate-900">Progresso</span>
@@ -1188,7 +1188,7 @@ export default function App() {
                 </div>
               </div>
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-500">PREVIEW</div>
+                <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-500">PRÉVIA</div>
                 <div className="p-4 bg-[#e5ddd5] min-h-[260px] flex items-end">
                   <div className="bg-white rounded-lg rounded-tl-none shadow-sm p-3 max-w-[90%]">
                     <p className="text-sm text-slate-800 break-words">{bulkMessage || 'Prévia da mensagem da campanha.'}</p>
@@ -1328,7 +1328,7 @@ export default function App() {
               <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
                 <div className="flex items-center justify-between gap-3">
                   <h2 className="text-xl sm:text-2xl font-black text-slate-900">
-                    {editingScheduledMessage ? 'Editar Agendamento' : 'Schedule Campaign'}
+                    {editingScheduledMessage ? 'Editar Agendamento' : 'Agendar Campanha'}
                   </h2>
                   {editingScheduledMessage && (
                     <button
@@ -1394,7 +1394,7 @@ export default function App() {
                 <h3 className="font-bold text-slate-900 mb-4">Resumo</h3>
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between"><span className="text-slate-500">Fila total</span><span className="font-semibold">{scheduledMessages.length}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Timezone</span><span className="font-semibold">{timezone}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Fuso horário</span><span className="font-semibold">{timezone}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500">Status edição</span><span className="font-semibold">{editingScheduledMessage ? 'Ativa' : 'Nova'}</span></div>
                 </div>
               </aside>
@@ -1543,7 +1543,7 @@ export default function App() {
                           <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                             msg.status === 'sent' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
                           }`}>
-                            {msg.status}
+                            {msg.status === 'sent' ? 'Enviado' : msg.status === 'delivered' ? 'Entregue' : msg.status}
                           </span>
                         </td>
                       </tr>
@@ -2217,7 +2217,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-xl font-black text-slate-900">WBM Pro</h1>
-              <p className="text-xs text-slate-500">Business Messaging</p>
+              <p className="text-xs text-slate-500">Mensageria Empresarial</p>
             </div>
           </div>
           {currentUser && (
@@ -2313,7 +2313,7 @@ export default function App() {
               <Menu className="w-5 h-5 text-slate-700" />
             </button>
             <div className="min-w-0">
-              <p className="text-xs text-slate-400 font-semibold uppercase tracking-[0.12em]">Dashboard</p>
+              <p className="text-xs text-slate-400 font-semibold uppercase tracking-[0.12em]">Painel</p>
               <h2 className="text-base sm:text-lg font-bold text-slate-900 truncate">{menuItems.find(item => item.id === activePage)?.label || 'Painel'}</h2>
             </div>
           </div>
@@ -2325,7 +2325,7 @@ export default function App() {
               onClick={() => setActivePage('bulk-send')}
               className="h-10 px-3 sm:px-4 rounded-xl bg-emerald-500 text-slate-900 font-bold text-sm"
             >
-              Send Campaign
+              Enviar Campanha
             </button>
           </div>
         </header>

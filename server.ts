@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 
 const db = new Database("messages.db");
 
-// Create tables
+// Criar tabelas
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS scheduled_messages (
@@ -59,27 +59,27 @@ try {
     );
   `);
   
-  console.log('✓ Database tables created/verified successfully');
+  console.log('✓ Tabelas do banco criadas/verificadas com sucesso');
   
-  // Verify tables exist
+  // Verificar se as tabelas existem
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
-  console.log('Available tables:', tables.map((t: any) => t.name).join(', '));
+  console.log('Tabelas disponíveis:', tables.map((t: any) => t.name).join(', '));
   
-  // Create default admin user if no users exist
+  // Criar usuário admin padrão caso não existam usuários
   const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get() as any;
   if (userCount.count === 0) {
-    console.log('Creating default admin user...');
+    console.log('Criando usuário admin padrão...');
     db.prepare("INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)").run(
       'admin',
       'admin@admin.com',
       'admin123',
       'admin'
     );
-    console.log('✓ Default admin user created (email: admin@admin.com, password: admin123)');
+    console.log('✓ Usuário admin padrão criado (email: admin@admin.com, senha: admin123)');
   }
   
 } catch (error) {
-  console.error('Error creating database tables:', error);
+  console.error('Erro ao criar tabelas do banco:', error);
   throw error;
 }
 
@@ -90,19 +90,19 @@ db.prepare("UPDATE scheduled_messages SET status = 'Agendado' WHERE status IS NU
 const app = express();
 app.use(express.json());
 
-// Log all requests
+// Log de todas as requisições
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`);
   next();
 });
 
-// Test endpoint
+// Endpoint de teste
 app.get("/api/test", (req, res) => {
-  console.log('GET /api/test - Test endpoint called');
-  res.json({ status: 'ok', message: 'API is working!' });
+  console.log('GET /api/test - Endpoint de teste chamado');
+  res.json({ status: 'ok', message: 'API está funcionando!' });
 });
 
-// Serve reset password page
+// Servir página de redefinição de senha
 app.get("/reset-password", (req, res) => {
   res.sendFile(path.join(__dirname, "reset-password.html"));
 });
@@ -172,7 +172,7 @@ const waitWithStopCheck = async (ms: number) => {
 
 async function sendWhatsAppMessage(number: string, message: string, name?: string) {
   const instanceName = db.prepare("SELECT value FROM settings WHERE key = 'instance_name'").get().value;
-  console.log(`Sending message to ${number}: "${message}"`);
+  console.log(`Enviando mensagem para ${number}: "${message}"`);
   const actualNumber = (number.includes(';') ? number.split(';')[1] : number).replace(/[^0-9]/g, '');
   const actualName = name || (number.includes(';') ? number.split(';')[0] : undefined);
   const payload = {
@@ -180,7 +180,7 @@ async function sendWhatsAppMessage(number: string, message: string, name?: strin
     text: message,
   };
   try {
-    console.log(`Sending payload to ${instanceName}:`, payload);
+    console.log(`Enviando payload para ${instanceName}:`, payload);
     const response = await axios.post(
       `${EVOLUTION_API_URL}/message/sendText/${instanceName}`,
       payload,
@@ -194,10 +194,10 @@ async function sendWhatsAppMessage(number: string, message: string, name?: strin
     const messageId = response.data.key.id;
     const now = new Date().toISOString();
     db.prepare("INSERT INTO messages (id, number, name, message, status, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(messageId, actualNumber, actualName || null, message, 'sent', now);
-    console.log(`Message sent to ${actualNumber}, ID: ${messageId}`);
+    console.log(`Mensagem enviada para ${actualNumber}, ID: ${messageId}`);
   } catch (error: any) {
-    console.error(`Failed to send message to ${actualNumber}. Payload:`, JSON.stringify(payload));
-    console.error(`Error response:`, JSON.stringify(error.response?.data || error.message));
+    console.error(`Falha ao enviar mensagem para ${actualNumber}. Payload:`, JSON.stringify(payload));
+    console.error(`Resposta de erro:`, JSON.stringify(error.response?.data || error.message));
     return false;
   }
   return true;
@@ -226,7 +226,7 @@ app.get('/api/contacts', (req, res) => {
     const contacts = db.prepare('SELECT * FROM contacts ORDER BY name COLLATE NOCASE ASC, created_at DESC').all();
     return res.json(contacts);
   } catch (error: any) {
-    console.error('Error fetching contacts:', error.message);
+    console.error('Erro ao buscar contatos:', error.message);
     return res.status(500).json({ error: error.message });
   }
 });
@@ -244,7 +244,7 @@ app.post('/api/contacts', (req, res) => {
     const result = stmt.run((name || '').trim() || null, normalizedNumber);
     return res.status(201).json({ status: 'created', id: result.lastInsertRowid });
   } catch (error: any) {
-    console.error('Error creating contact:', error.message);
+    console.error('Erro ao criar contato:', error.message);
     if (error.message?.includes('UNIQUE constraint failed: contacts.number')) {
       return res.status(409).json({ error: 'Este número já está cadastrado' });
     }
@@ -271,7 +271,7 @@ app.put('/api/contacts/:id', (req, res) => {
 
     return res.json({ status: 'updated' });
   } catch (error: any) {
-    console.error('Error updating contact:', error.message);
+    console.error('Erro ao atualizar contato:', error.message);
     if (error.message?.includes('UNIQUE constraint failed: contacts.number')) {
       return res.status(409).json({ error: 'Este número já está cadastrado' });
     }
@@ -291,7 +291,7 @@ app.delete('/api/contacts/:id', (req, res) => {
 
     return res.json({ status: 'deleted' });
   } catch (error: any) {
-    console.error('Error deleting contact:', error.message);
+    console.error('Erro ao excluir contato:', error.message);
     return res.status(400).json({ error: error.message });
   }
 });
@@ -327,23 +327,23 @@ app.post("/api/send-bulk", async (req, res) => {
   resetBulkCampaignCounters();
   bulkCampaignStatus.total = parsedNumbers.length;
 
-  console.log(`Bulk campaign started. Total: ${parsedNumbers.length}, Delay: ${parsedDelay}s`);
+  console.log(`Campanha em massa iniciada. Total: ${parsedNumbers.length}, Intervalo: ${parsedDelay}s`);
 
   (async () => {
     try {
       for (let i = 0; i < parsedNumbers.length; i++) {
         if (bulkCampaignStatus.stopRequested) {
-          console.log('Bulk campaign stop requested. Finishing loop.');
+          console.log('Parada da campanha em massa solicitada. Finalizando loop.');
           break;
         }
 
         const number = parsedNumbers[i];
-        console.log(`Sending bulk message to ${number}`);
+        console.log(`Enviando mensagem em massa para ${number}`);
 
         if (i > 0) {
           const canContinue = await waitWithStopCheck(parsedDelay * 1000);
           if (!canContinue) {
-            console.log('Bulk campaign interrupted during delay interval.');
+            console.log('Campanha em massa interrompida durante o intervalo de espera.');
             break;
           }
         }
@@ -358,12 +358,12 @@ app.post("/api/send-bulk", async (req, res) => {
         }
       }
     } catch (error: any) {
-      console.error('Unexpected error during bulk campaign:', error?.message || error);
+      console.error('Erro inesperado durante a campanha em massa:', error?.message || error);
     } finally {
       bulkCampaignStatus.isRunning = false;
       bulkCampaignStatus.endedAt = new Date().toISOString();
       bulkCampaignStatus.stopRequested = false;
-      console.log(`Bulk campaign finished. Processed: ${bulkCampaignStatus.processed}/${bulkCampaignStatus.total}, Sent: ${bulkCampaignStatus.sent}, Failed: ${bulkCampaignStatus.failed}`);
+      console.log(`Campanha em massa finalizada. Processadas: ${bulkCampaignStatus.processed}/${bulkCampaignStatus.total}, Enviadas: ${bulkCampaignStatus.sent}, Falhas: ${bulkCampaignStatus.failed}`);
     }
   })();
 
@@ -412,10 +412,10 @@ app.post("/api/settings", (req, res) => {
 
 app.post("/api/schedule", (req, res) => {
   const { name, number, message, scheduledAt } = req.body;
-  console.log(`Scheduling message. Name: ${name}, Number: ${number}, Message: ${message}, ScheduledAt: ${scheduledAt}`);
+  console.log(`Agendando mensagem. Nome: ${name}, Número: ${number}, Mensagem: ${message}, AgendadoPara: ${scheduledAt}`);
   if (!message || message.trim() === "") {
-    console.error("Attempted to schedule message with empty text");
-    return res.status(400).json({ error: "Message is required" });
+    console.error("Tentativa de agendar mensagem com texto vazio");
+    return res.status(400).json({ error: "Mensagem é obrigatória" });
   }
   const stmt = db.prepare("INSERT INTO scheduled_messages (name, number, message, scheduled_at, status) VALUES (?, ?, ?, ?, 'Agendado')");
   stmt.run(name, number, message, scheduledAt);
@@ -430,18 +430,18 @@ app.get("/api/scheduled-messages", (req, res) => {
 app.put("/api/scheduled-messages/:id", (req, res) => {
   const { id } = req.params;
   const { name, number, message, scheduledAt } = req.body;
-  console.log(`Updating scheduled message ${id}. Name: ${name}, Number: ${number}, Message: ${message}, ScheduledAt: ${scheduledAt}`);
+  console.log(`Atualizando mensagem agendada ${id}. Nome: ${name}, Número: ${number}, Mensagem: ${message}, AgendadoPara: ${scheduledAt}`);
   
   if (!message || message.trim() === "") {
-    console.error("Attempted to update message with empty text");
-    return res.status(400).json({ error: "Message is required" });
+    console.error("Tentativa de atualizar mensagem com texto vazio");
+    return res.status(400).json({ error: "Mensagem é obrigatória" });
   }
   
   const stmt = db.prepare("UPDATE scheduled_messages SET name = ?, number = ?, message = ?, scheduled_at = ? WHERE id = ?");
   const result = stmt.run(name, number, message, scheduledAt, id);
   
   if (result.changes === 0) {
-    return res.status(404).json({ error: "Scheduled message not found" });
+    return res.status(404).json({ error: "Mensagem agendada não encontrada" });
   }
   
   res.json({ status: "updated" });
@@ -449,58 +449,58 @@ app.put("/api/scheduled-messages/:id", (req, res) => {
 
 app.delete("/api/scheduled-messages/:id", (req, res) => {
   const { id } = req.params;
-  console.log(`Deleting scheduled message ${id}`);
+  console.log(`Excluindo mensagem agendada ${id}`);
   
   const stmt = db.prepare("DELETE FROM scheduled_messages WHERE id = ?");
   const result = stmt.run(id);
   
   if (result.changes === 0) {
-    return res.status(404).json({ error: "Scheduled message not found" });
+    return res.status(404).json({ error: "Mensagem agendada não encontrada" });
   }
   
   res.json({ status: "deleted" });
 });
 
-// Authentication route
+// Rota de autenticação
 app.post("/api/login", (req, res) => {
   try {
-    console.log('POST /api/login - Request received');
+    console.log('POST /api/login - Requisição recebida');
     const { email, password } = req.body;
-    console.log('POST /api/login - Login attempt for email:', email);
+    console.log('POST /api/login - Tentativa de login para o email:', email);
     
     if (!email || !password) {
-      console.log('Login failed: Missing email or password');
+      console.log('Login falhou: email ou senha ausentes');
       return res.status(400).json({ error: 'Email e senha são obrigatórios' });
     }
     
-    // Verify users table exists
+    // Verificar se a tabela de usuários existe
     const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
     if (!tableExists) {
-      console.error('ERROR: users table does not exist!');
+      console.error('ERRO: tabela users não existe!');
       return res.status(500).json({ error: 'Tabela de usuários não existe. Reinicie o servidor.' });
     }
     
-    // Find user by email
-    console.log('Searching for user with email:', email);
+    // Buscar usuário por email
+    console.log('Buscando usuário com email:', email);
     const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email) as any;
-    console.log('User found:', user ? 'Yes' : 'No');
+    console.log('Usuário encontrado:', user ? 'Sim' : 'Não');
     
     if (!user) {
-      console.log('Login failed: User not found for email:', email);
-      // List all users for debugging
+      console.log('Login falhou: usuário não encontrado para o email:', email);
+      // Listar todos os usuários para depuração
       const allUsers = db.prepare("SELECT email FROM users").all();
-      console.log('Available users:', allUsers);
+      console.log('Usuários disponíveis:', allUsers);
       return res.status(401).json({ error: 'Email ou senha inválidos' });
     }
     
-    console.log('Checking password for user:', user.username);
-    // Check password (in production, use bcrypt.compare)
+    console.log('Verificando senha do usuário:', user.username);
+    // Verificar senha (em produção, usar bcrypt.compare)
     if (user.password !== password) {
-      console.log('Login failed: Invalid password for user:', user.username);
+      console.log('Login falhou: senha inválida para o usuário:', user.username);
       return res.status(401).json({ error: 'Email ou senha inválidos' });
     }
     
-    console.log('Login successful for user:', user.username);
+    console.log('Login realizado com sucesso para o usuário:', user.username);
 
     const rolePermissions = db
       .prepare("SELECT permissions FROM roles WHERE name = ?")
@@ -511,7 +511,7 @@ app.post("/api/login", (req, res) => {
         ? APP_PERMISSION_IDS.join(',')
         : (rolePermissions?.permissions || '');
     
-    // Return user data without password
+    // Retornar dados do usuário sem senha
     const { password: _, ...userWithoutPassword } = user;
     return res.json({ 
       success: true,
@@ -521,15 +521,15 @@ app.post("/api/login", (req, res) => {
       }
     });
   } catch (error: any) {
-    console.error('Error during login:', error);
-    console.error('Error stack:', error.stack);
+    console.error('Erro durante o login:', error);
+    console.error('Stack do erro:', error.stack);
     return res.status(500).json({ error: `Erro ao fazer login: ${error.message}` });
   }
 });
 
-// Diagnostic endpoint
+// Endpoint de diagnóstico
 app.get("/api/system/check", (req, res) => {
-  console.log('GET /api/system/check - Endpoint called');
+  console.log('GET /api/system/check - Endpoint chamado');
   try {
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
     const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get() as any;
@@ -542,24 +542,24 @@ app.get("/api/system/check", (req, res) => {
       users: users
     };
     
-    console.log('System check result:', JSON.stringify(response, null, 2));
+    console.log('Resultado da verificação do sistema:', JSON.stringify(response, null, 2));
     return res.json(response);
   } catch (error: any) {
-    console.error('Error in system check:', error);
+    console.error('Erro na verificação do sistema:', error);
     return res.status(500).json({ error: error.message });
   }
 });
 
-// Create admin user endpoint
+// Endpoint para criar usuário admin
 app.post("/api/system/create-admin", (req, res) => {
   try {
-    // Check if admin already exists
+    // Verificar se admin já existe
     const existingAdmin = db.prepare("SELECT * FROM users WHERE email = ?").get('admin@admin.com');
     if (existingAdmin) {
-      return res.json({ message: 'Admin user already exists', user: existingAdmin });
+      return res.json({ message: 'Usuário admin já existe', user: existingAdmin });
     }
     
-    // Create admin user
+    // Criar usuário admin
     db.prepare("INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)").run(
       'admin',
       'admin@admin.com',
@@ -568,55 +568,55 @@ app.post("/api/system/create-admin", (req, res) => {
     );
     
     const newAdmin = db.prepare("SELECT id, username, email, role FROM users WHERE email = ?").get('admin@admin.com');
-    return res.json({ message: 'Admin user created successfully', user: newAdmin });
+    return res.json({ message: 'Usuário admin criado com sucesso', user: newAdmin });
   } catch (error: any) {
-    console.error('Error creating admin:', error);
+    console.error('Erro ao criar admin:', error);
     return res.status(500).json({ error: error.message });
   }
 });
 
-// Reset admin password endpoint
+// Endpoint para redefinir senha
 app.post("/api/system/reset-password", (req, res) => {
-  console.log('POST /api/system/reset-password - Endpoint called');
-  console.log('Request body:', req.body);
+  console.log('POST /api/system/reset-password - Endpoint chamado');
+  console.log('Corpo da requisição:', req.body);
   try {
     const { email, newPassword } = req.body;
     
     if (!email || !newPassword) {
-      console.log('Missing email or password');
+      console.log('Email ou senha ausentes');
       return res.status(400).json({ error: 'Email e nova senha são obrigatórios' });
     }
     
-    // Check if user exists
+    // Verificar se o usuário existe
     const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
     if (!user) {
-      console.log('User not found:', email);
+      console.log('Usuário não encontrado:', email);
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
     
-    // Update password
+    // Atualizar senha
     db.prepare("UPDATE users SET password = ? WHERE email = ?").run(newPassword, email);
-    console.log('Password updated successfully for:', email);
+    console.log('Senha atualizada com sucesso para:', email);
     
     return res.json({ 
       message: 'Senha atualizada com sucesso',
       email: email
     });
   } catch (error: any) {
-    console.error('Error resetting password:', error);
+    console.error('Erro ao redefinir senha:', error);
     return res.status(500).json({ error: error.message });
   }
 });
 
-// Users routes
+// Rotas de usuários
 app.get("/api/users", (req, res) => {
   try {
-    console.log('GET /api/users - Fetching users');
+    console.log('GET /api/users - Buscando usuários');
     const users = db.prepare("SELECT id, username, email, role, created_at FROM users").all();
-    console.log('Found users:', users.length);
+    console.log('Usuários encontrados:', users.length);
     return res.json(users);
   } catch (error: any) {
-    console.error('Error fetching users:', error.message);
+    console.error('Erro ao buscar usuários:', error.message);
     return res.status(500).json({ error: error.message });
   }
 });
@@ -624,26 +624,26 @@ app.get("/api/users", (req, res) => {
 app.post("/api/users", (req, res) => {
   try {
     const { username, email, password, role } = req.body;
-    console.log('POST /api/users - Creating user:', { username, email, role });
+    console.log('POST /api/users - Criando usuário:', { username, email, role });
     
     if (!username || !email || !password) {
-      console.log('Validation failed: missing required fields');
+      console.log('Validação falhou: campos obrigatórios ausentes');
       return res.status(400).json({ error: 'Campos obrigatórios faltando' });
     }
     
-    // Verify table exists
+    // Verificar se a tabela existe
     const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
     if (!tableExists) {
-      console.error('ERROR: users table does not exist!');
+      console.error('ERRO: tabela users não existe!');
       return res.status(500).json({ error: 'Tabela users não existe. Reinicie o servidor.' });
     }
     
     const stmt = db.prepare("INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)");
     const result = stmt.run(username, email, password, role || 'user');
-    console.log('User created successfully with ID:', result.lastInsertRowid);
+    console.log('Usuário criado com sucesso com ID:', result.lastInsertRowid);
     return res.status(200).json({ status: "created", id: result.lastInsertRowid });
   } catch (error: any) {
-    console.error('Error creating user:', error.message);
+    console.error('Erro ao criar usuário:', error.message);
     return res.status(400).json({ error: error.message });
   }
 });
@@ -652,43 +652,43 @@ app.put("/api/users/:id", (req, res) => {
   try {
     const { id } = req.params;
     const { username, email, password, role } = req.body;
-    console.log('PUT /api/users/:id - Updating user:', { id, username, email, role, hasPassword: !!password });
-    console.log('Request body:', req.body);
+    console.log('PUT /api/users/:id - Atualizando usuário:', { id, username, email, role, hasPassword: !!password });
+    console.log('Corpo da requisição:', req.body);
     
     if (!username || !email) {
-      console.log('Validation failed: missing required fields');
-      return res.status(400).json({ error: 'Username e email são obrigatórios' });
+      console.log('Validação falhou: campos obrigatórios ausentes');
+      return res.status(400).json({ error: 'Nome de usuário e email são obrigatórios' });
     }
     
-    // Check if user exists
+    // Verificar se o usuário existe
     const existingUser = db.prepare("SELECT * FROM users WHERE id = ?").get(id);
     if (!existingUser) {
-      console.log('User not found:', id);
+      console.log('Usuário não encontrado:', id);
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
     
-    console.log('Existing user found:', { id: existingUser.id, username: existingUser.username, email: existingUser.email });
+    console.log('Usuário existente encontrado:', { id: existingUser.id, username: existingUser.username, email: existingUser.email });
     
-    // Update user (only update password if provided)
+    // Atualizar usuário (atualiza senha somente se enviada)
     if (password && password.trim() !== '') {
-      console.log('Updating with new password');
+      console.log('Atualizando com nova senha');
       db.prepare("UPDATE users SET username = ?, email = ?, password = ?, role = ? WHERE id = ?")
         .run(username, email, password, role || 'user', id);
     } else {
-      console.log('Updating without password change');
+      console.log('Atualizando sem alterar senha');
       db.prepare("UPDATE users SET username = ?, email = ?, role = ? WHERE id = ?")
         .run(username, email, role || 'user', id);
     }
     
-    console.log('User updated successfully:', id);
+    console.log('Usuário atualizado com sucesso:', id);
     
-    // Return updated user data
+    // Retornar dados atualizados do usuário
     const updatedUser = db.prepare("SELECT id, username, email, role, created_at FROM users WHERE id = ?").get(id);
-    console.log('Updated user data:', updatedUser);
+    console.log('Dados atualizados do usuário:', updatedUser);
     
     return res.json({ status: "updated", user: updatedUser });
   } catch (error: any) {
-    console.error('Error updating user:', error.message);
+    console.error('Erro ao atualizar usuário:', error.message);
     console.error('Stack:', error.stack);
     return res.status(400).json({ error: error.message });
   }
@@ -700,20 +700,20 @@ app.delete("/api/users/:id", (req, res) => {
     db.prepare("DELETE FROM users WHERE id = ?").run(id);
     return res.json({ status: "deleted" });
   } catch (error: any) {
-    console.error('Error deleting user:', error.message);
+    console.error('Erro ao excluir usuário:', error.message);
     return res.status(400).json({ error: error.message });
   }
 });
 
-// Roles routes
+// Rotas de grupos
 app.get("/api/roles", (req, res) => {
   try {
-    console.log('GET /api/roles - Fetching roles');
+    console.log('GET /api/roles - Buscando grupos');
     const roles = db.prepare("SELECT * FROM roles").all();
-    console.log('Found roles:', roles.length);
+    console.log('Grupos encontrados:', roles.length);
     return res.json(roles);
   } catch (error: any) {
-    console.error('Error fetching roles:', error.message);
+    console.error('Erro ao buscar grupos:', error.message);
     return res.status(500).json({ error: error.message });
   }
 });
@@ -721,26 +721,26 @@ app.get("/api/roles", (req, res) => {
 app.post("/api/roles", (req, res) => {
   try {
     const { name, description, permissions } = req.body;
-    console.log('POST /api/roles - Creating role:', { name, description, permissions });
+    console.log('POST /api/roles - Criando grupo:', { name, description, permissions });
     
     if (!name) {
-      console.log('Validation failed: name is required');
+      console.log('Validação falhou: nome é obrigatório');
       return res.status(400).json({ error: 'Nome do grupo é obrigatório' });
     }
     
-    // Verify table exists
+    // Verificar se a tabela existe
     const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='roles'").get();
     if (!tableExists) {
-      console.error('ERROR: roles table does not exist!');
+      console.error('ERRO: tabela roles não existe!');
       return res.status(500).json({ error: 'Tabela roles não existe. Reinicie o servidor.' });
     }
     
     const stmt = db.prepare("INSERT INTO roles (name, description, permissions) VALUES (?, ?, ?)");
     const result = stmt.run(name, description || '', permissions || '');
-    console.log('Role created successfully with ID:', result.lastInsertRowid);
+    console.log('Grupo criado com sucesso com ID:', result.lastInsertRowid);
     return res.status(200).json({ status: "created", id: result.lastInsertRowid });
   } catch (error: any) {
-    console.error('Error creating role:', error.message);
+    console.error('Erro ao criar grupo:', error.message);
     return res.status(400).json({ error: error.message });
   }
 });
@@ -749,27 +749,27 @@ app.put("/api/roles/:id", (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, permissions } = req.body;
-    console.log('PUT /api/roles/:id - Updating role:', { id, name, description, permissions });
+    console.log('PUT /api/roles/:id - Atualizando grupo:', { id, name, description, permissions });
     
     if (!name) {
-      console.log('Validation failed: name is required');
+      console.log('Validação falhou: nome é obrigatório');
       return res.status(400).json({ error: 'Nome do grupo é obrigatório' });
     }
     
-    // Check if role exists
+    // Verificar se o grupo existe
     const existingRole = db.prepare("SELECT * FROM roles WHERE id = ?").get(id);
     if (!existingRole) {
       return res.status(404).json({ error: 'Grupo não encontrado' });
     }
     
-    // Update role
+    // Atualizar grupo
     db.prepare("UPDATE roles SET name = ?, description = ?, permissions = ? WHERE id = ?")
       .run(name, description || '', permissions || '', id);
     
-    console.log('Role updated successfully:', id);
+    console.log('Grupo atualizado com sucesso:', id);
     return res.json({ status: "updated" });
   } catch (error: any) {
-    console.error('Error updating role:', error.message);
+    console.error('Erro ao atualizar grupo:', error.message);
     return res.status(400).json({ error: error.message });
   }
 });
@@ -780,17 +780,17 @@ app.delete("/api/roles/:id", (req, res) => {
     db.prepare("DELETE FROM roles WHERE id = ?").run(id);
     return res.json({ status: "deleted" });
   } catch (error: any) {
-    console.error('Error deleting role:', error.message);
+    console.error('Erro ao excluir grupo:', error.message);
     return res.status(400).json({ error: error.message });
   }
 });
 
-// Cron job to check for scheduled messages
+// Tarefa cron para verificar mensagens agendadas
 cron.schedule("* * * * *", async () => {
   const now = new Date().toISOString().slice(0, 16);
   const stmt = db.prepare("SELECT * FROM scheduled_messages WHERE scheduled_at <= ? AND status = 'Agendado'");
   const messages = stmt.all(now);
-  console.log(`Checking scheduled messages. Now: ${now}, Found: ${messages.length}`);
+  console.log(`Verificando mensagens agendadas. Agora: ${now}, Encontradas: ${messages.length}`);
   
   for (const msg of messages) {
     const claim = db
@@ -812,11 +812,11 @@ cron.schedule("* * * * *", async () => {
   }
 });
 
-// Error handling middleware (must be after all routes)
+// Middleware global de erro (deve ficar após todas as rotas)
 app.use((err: any, req: any, res: any, next: any) => {
-  console.error('Global error handler:', err);
+  console.error('Tratador global de erro:', err);
   if (!res.headersSent) {
-    res.status(500).json({ error: err.message || 'Internal server error' });
+    res.status(500).json({ error: err.message || 'Erro interno do servidor' });
   }
 });
 
@@ -825,12 +825,12 @@ async function startServer() {
   const distPath = path.join(__dirname, 'dist');
   const hasDistFolder = existsSync(distPath);
 
-  // Serve dist only when NODE_ENV=production (prevents stale frontend in dev)
+  // Servir dist apenas quando NODE_ENV=production (evita frontend desatualizado no dev)
   const isProduction = process.env.NODE_ENV === "production";
 
   if (!isProduction) {
-    console.log('Starting in development mode with Vite...');
-    console.log('Dist folder exists:', hasDistFolder);
+    console.log('Iniciando em modo de desenvolvimento com Vite...');
+    console.log('Pasta dist existe:', hasDistFolder);
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
@@ -840,24 +840,24 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    console.log('Starting in production mode...');
-    // Serve static files from dist folder in production (except index.html)
+    console.log('Iniciando em modo de produção...');
+    // Servir arquivos estáticos da pasta dist em produção (exceto index.html)
     app.use(express.static(distPath, { index: false }));
     
-    // Serve index.html for all non-API routes (must be after all API routes)
+    // Servir index.html para todas as rotas não-API (deve ficar após as rotas da API)
     app.get('*', (req, res) => {
-      // Don't serve index.html for API routes
+      // Não servir index.html para rotas da API
       if (req.path.startsWith('/api/') || req.path === '/reset-password') {
-        return res.status(404).json({ error: 'Not found' });
+        return res.status(404).json({ error: 'Não encontrado' });
       }
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Mode: ${isProduction ? 'production' : 'development'}`);
-    console.log(`NODE_ENV: ${process.env.NODE_ENV || 'not set'}`);
+    console.log(`Servidor rodando em http://localhost:${PORT}`);
+    console.log(`Modo: ${isProduction ? 'produção' : 'desenvolvimento'}`);
+    console.log(`NODE_ENV: ${process.env.NODE_ENV || 'não definido'}`);
   });
 }
 
