@@ -340,24 +340,49 @@ export default function App() {
                 Agendar Mensagem
               </button>
             </div>
+            
             {scheduledMessages.length > 0 && (
-              <div className="mt-6 border-t pt-6">
-                <h3 className="font-semibold text-gray-800 mb-4">Mensagens Agendadas</h3>
-                <div className="space-y-2">
-                  {scheduledMessages.map(msg => (
-                    <div key={msg.id} className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-medium text-gray-800">{msg.name || msg.number}</p>
-                          <p className="text-sm text-gray-600 mt-1">{msg.message}</p>
-                          <p className="text-xs text-blue-600 mt-2">
-                            📅 {new Date(msg.scheduled_at).toLocaleString('pt-BR')}
-                          </p>
-                        </div>
-                        <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded">{msg.status}</span>
-                      </div>
-                    </div>
-                  ))}
+              <div className="mt-8 border-t pt-6">
+                <h3 className="font-semibold text-gray-800 mb-4 text-lg">Mensagens Agendadas ({scheduledMessages.length})</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b-2 border-gray-200 bg-blue-50">
+                        <th className="p-3 text-left text-sm font-semibold text-gray-700">Nome</th>
+                        <th className="p-3 text-left text-sm font-semibold text-gray-700">Número</th>
+                        <th className="p-3 text-left text-sm font-semibold text-gray-700">Mensagem</th>
+                        <th className="p-3 text-left text-sm font-semibold text-gray-700">Hora Agendada</th>
+                        <th className="p-3 text-left text-sm font-semibold text-gray-700">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scheduledMessages.map(msg => (
+                        <tr key={msg.id} className="border-b border-gray-100 hover:bg-blue-50 transition">
+                          <td className="p-3 text-sm text-gray-700">{msg.name || '-'}</td>
+                          <td className="p-3 text-sm text-gray-700 font-mono">{msg.number}</td>
+                          <td className="p-3 text-sm text-gray-600 max-w-xs truncate">{msg.message}</td>
+                          <td className="p-3 text-sm text-gray-500">
+                            {new Date(msg.scheduled_at).toLocaleString('pt-BR', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </td>
+                          <td className="p-3">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              msg.status === 'Agendado' ? 'bg-blue-100 text-blue-700' : 
+                              msg.status === 'Enviado' ? 'bg-green-100 text-green-700' : 
+                              'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {msg.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
