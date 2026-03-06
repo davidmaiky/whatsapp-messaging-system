@@ -29,6 +29,7 @@ interface User {
   username: string;
   email: string;
   role: string;
+  permissions?: string;
   created_at: string;
 }
 
@@ -56,6 +57,18 @@ const availablePermissions = [
   { id: 'manage-roles', label: 'Gerenciar Grupos', description: 'Permite criar, editar e excluir grupos de permissões' },
   { id: 'system-settings', label: 'Configurações do Sistema', description: 'Permite alterar configurações gerais do sistema' },
 ];
+
+type PermissionId = (typeof availablePermissions)[number]['id'];
+
+const allPermissionIds = availablePermissions.map((permission) => permission.id);
+
+const pagePermissionMap: Record<Page, PermissionId[]> = {
+  'send-now': ['send-now'],
+  'bulk-send': ['bulk-send'],
+  'schedule': ['schedule'],
+  'history': ['view-history'],
+  'settings': ['system-settings', 'manage-users', 'manage-roles'],
+};
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -529,6 +542,42 @@ export default function App() {
     showNotification('success', 'Histórico limpo!');
   };
 
+  const normalizePermissions = (permissions?: string) =>
+    (permissions || '')
+      .split(',')
+      .map((permission) => permission.trim())
+      .filter(Boolean);
+
+  const getCurrentUserPermissions = (): string[] => {
+    if (!currentUser) return [];
+
+    if (currentUser.role === 'admin') {
+      return allPermissionIds;
+    }
+
+    const rolePermissions = roles.find(role => role.name === currentUser.role)?.permissions;
+    const permissionsFromRole = normalizePermissions(rolePermissions);
+
+    if (permissionsFromRole.length > 0) {
+      return permissionsFromRole;
+    }
+
+    return normalizePermissions(currentUser.permissions);
+  };
+
+  const currentUserPermissions = getCurrentUserPermissions();
+
+  const hasPermission = (permissionId: PermissionId) => currentUserPermissions.includes(permissionId);
+
+  const canAccessPage = (page: Page) => pagePermissionMap[page].some(hasPermission);
+
+  const canAccessSettingsTab = (tab: SettingsTab) => {
+    if (tab === 'general') return hasPermission('system-settings');
+    if (tab === 'users') return hasPermission('manage-users');
+    if (tab === 'roles') return hasPermission('manage-roles');
+    return false;
+  };
+
   const menuItems = [
     { id: 'send-now' as Page, icon: Send, label: 'Enviar Agora', color: 'text-green-600' },
     { id: 'bulk-send' as Page, icon: Users, label: 'Envio em Massa', color: 'text-purple-600' },
@@ -537,7 +586,48 @@ export default function App() {
     { id: 'settings' as Page, icon: Settings, label: 'Configurações', color: 'text-gray-600' },
   ];
 
+  const accessibleMenuItems = menuItems.filter(item => canAccessPage(item.id));
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (accessibleMenuItems.length === 0) return;
+
+    const hasActivePageAccess = accessibleMenuItems.some(item => item.id === activePage);
+    if (!hasActivePageAccess) {
+      setActivePage(accessibleMenuItems[0].id);
+    }
+  }, [isAuthenticated, activePage, accessibleMenuItems]);
+
+  useEffect(() => {
+    if (!isAuthenticated || activePage !== 'settings') return;
+    if (canAccessSettingsTab(settingsTab)) return;
+
+    if (canAccessSettingsTab('general')) {
+      setSettingsTab('general');
+      return;
+    }
+
+    if (canAccessSettingsTab('users')) {
+      setSettingsTab('users');
+      return;
+    }
+
+    if (canAccessSettingsTab('roles')) {
+      setSettingsTab('roles');
+    }
+  }, [isAuthenticated, activePage, settingsTab, currentUserPermissions.join(',')]);
+
   const renderPage = () => {
+    if (!canAccessPage(activePage)) {
+      return (
+        <div className="bg-white rounded-xl shadow-lg p-8 max-w-2xl mx-auto text-center">
+          <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Acesso não permitido</h2>
+          <p className="text-gray-600">Você não tem permissão para visualizar esta página.</p>
+        </div>
+      );
+    }
+
     switch (activePage) {
       case 'send-now':
         return (
@@ -773,13 +863,15 @@ export default function App() {
                 <History className="w-6 h-6 text-orange-600" />
                 <h2 className="text-2xl font-bold text-gray-800">Histórico de Mensagens</h2>
               </div>
-              <button 
-                className="p-2 px-4 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition flex items-center gap-2 shadow-md" 
-                onClick={clearHistory}
-              >
-                <Trash2 className="w-4 h-4" />
-                Limpar Histórico
-              </button>
+              {hasPermission('clear-history') && (
+                <button 
+                  className="p-2 px-4 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition flex items-center gap-2 shadow-md" 
+                  onClick={clearHistory}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Limpar Histórico
+                </button>
+              )}
             </div>
             
             <div className="relative mb-6">
@@ -885,42 +977,54 @@ export default function App() {
 
             {/* Tabs */}
             <div className="flex gap-2 mb-6 border-b">
-              <button
-                onClick={() => setSettingsTab('general')}
-                className={`px-4 py-2 font-medium transition ${
-                  settingsTab === 'general'
-                    ? 'text-green-600 border-b-2 border-green-600'
-                    : 'text-gray-600 hover:text-gray-800'
-                }`}
-              >
-                Geral
-              </button>
-              <button
-                onClick={() => setSettingsTab('users')}
-                className={`px-4 py-2 font-medium transition flex items-center gap-2 ${
-                  settingsTab === 'users'
-                    ? 'text-green-600 border-b-2 border-green-600'
-                    : 'text-gray-600 hover:text-gray-800'
-                }`}
-              >
-                <UserPlus className="w-4 h-4" />
-                Usuários
-              </button>
-              <button
-                onClick={() => setSettingsTab('roles')}
-                className={`px-4 py-2 font-medium transition flex items-center gap-2 ${
-                  settingsTab === 'roles'
-                    ? 'text-green-600 border-b-2 border-green-600'
-                    : 'text-gray-600 hover:text-gray-800'
-                }`}
-              >
-                <Shield className="w-4 h-4" />
-                Grupos e Permissões
-              </button>
+              {canAccessSettingsTab('general') && (
+                <button
+                  onClick={() => setSettingsTab('general')}
+                  className={`px-4 py-2 font-medium transition ${
+                    settingsTab === 'general'
+                      ? 'text-green-600 border-b-2 border-green-600'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Geral
+                </button>
+              )}
+              {canAccessSettingsTab('users') && (
+                <button
+                  onClick={() => setSettingsTab('users')}
+                  className={`px-4 py-2 font-medium transition flex items-center gap-2 ${
+                    settingsTab === 'users'
+                      ? 'text-green-600 border-b-2 border-green-600'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Usuários
+                </button>
+              )}
+              {canAccessSettingsTab('roles') && (
+                <button
+                  onClick={() => setSettingsTab('roles')}
+                  className={`px-4 py-2 font-medium transition flex items-center gap-2 ${
+                    settingsTab === 'roles'
+                      ? 'text-green-600 border-b-2 border-green-600'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  <Shield className="w-4 h-4" />
+                  Grupos e Permissões
+                </button>
+              )}
             </div>
 
+            {!canAccessSettingsTab('general') && !canAccessSettingsTab('users') && !canAccessSettingsTab('roles') && (
+              <div className="p-4 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800">
+                Você não tem permissões para as seções de configurações.
+              </div>
+            )}
+
             {/* Tab Content */}
-            {settingsTab === 'general' && (
+            {settingsTab === 'general' && canAccessSettingsTab('general') && (
               <div className="space-y-4 max-w-2xl">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -986,7 +1090,7 @@ export default function App() {
               </div>
             )}
 
-            {settingsTab === 'users' && (
+            {settingsTab === 'users' && canAccessSettingsTab('users') && (
               <div className="space-y-6">
                 {/* Create User Form */}
                 <div className="bg-green-50 p-6 rounded-lg border border-green-200">
@@ -1186,7 +1290,7 @@ export default function App() {
               </div>
             )}
 
-            {settingsTab === 'roles' && (
+            {settingsTab === 'roles' && canAccessSettingsTab('roles') && (
               <div className="space-y-6">
                 {/* Create Role Form */}
                 <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
@@ -1515,7 +1619,7 @@ export default function App() {
         {/* Menu Items */}
         <nav className="p-4 flex-1">
           <ul className="space-y-2">
-            {menuItems.map(item => {
+            {accessibleMenuItems.map(item => {
               const Icon = item.icon;
               const isActive = activePage === item.id;
               return (

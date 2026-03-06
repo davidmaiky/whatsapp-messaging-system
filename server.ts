@@ -103,6 +103,16 @@ app.get("/reset-password", (req, res) => {
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
 const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
 const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE;
+const APP_PERMISSION_IDS = [
+  'send-now',
+  'bulk-send',
+  'schedule',
+  'view-history',
+  'clear-history',
+  'manage-users',
+  'manage-roles',
+  'system-settings',
+];
 
 async function sendWhatsAppMessage(number: string, message: string, name?: string) {
   const instanceName = db.prepare("SELECT value FROM settings WHERE key = 'instance_name'").get().value;
@@ -258,12 +268,24 @@ app.post("/api/login", (req, res) => {
     }
     
     console.log('Login successful for user:', user.username);
+
+    const rolePermissions = db
+      .prepare("SELECT permissions FROM roles WHERE name = ?")
+      .get(user.role) as { permissions?: string } | undefined;
+
+    const effectivePermissions =
+      user.role === 'admin'
+        ? APP_PERMISSION_IDS.join(',')
+        : (rolePermissions?.permissions || '');
     
     // Return user data without password
     const { password: _, ...userWithoutPassword } = user;
     return res.json({ 
       success: true,
-      user: userWithoutPassword
+      user: {
+        ...userWithoutPassword,
+        permissions: effectivePermissions,
+      }
     });
   } catch (error: any) {
     console.error('Error during login:', error);
@@ -558,9 +580,9 @@ async function startServer() {
   const PORT = 3000;
   const distPath = path.join(__dirname, 'dist');
   const hasDistFolder = existsSync(distPath);
-  
-  // Prefer serving built frontend when dist exists (more stable in this environment)
-  const isProduction = hasDistFolder || process.env.NODE_ENV === "production";
+
+  // Serve dist only when NODE_ENV=production (prevents stale frontend in dev)
+  const isProduction = process.env.NODE_ENV === "production";
 
   if (!isProduction) {
     console.log('Starting in development mode with Vite...');
