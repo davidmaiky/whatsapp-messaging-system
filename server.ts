@@ -4,6 +4,11 @@ import { createServer as createViteServer } from "vite";
 import axios from "axios";
 import cron from "node-cron";
 import Database from "better-sqlite3";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const db = new Database("messages.db");
 
@@ -76,6 +81,11 @@ db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)").run('tim
 
 const app = express();
 app.use(express.json());
+
+// Serve reset password page
+app.get("/reset-password", (req, res) => {
+  res.sendFile(path.join(__dirname, "reset-password.html"));
+});
 
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
 const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
@@ -288,6 +298,34 @@ app.post("/api/system/create-admin", (req, res) => {
     return res.json({ message: 'Admin user created successfully', user: newAdmin });
   } catch (error: any) {
     console.error('Error creating admin:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Reset admin password endpoint
+app.post("/api/system/reset-password", (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+    
+    if (!email || !newPassword) {
+      return res.status(400).json({ error: 'Email e nova senha são obrigatórios' });
+    }
+    
+    // Check if user exists
+    const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+    if (!user) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+    
+    // Update password
+    db.prepare("UPDATE users SET password = ? WHERE email = ?").run(newPassword, email);
+    
+    return res.json({ 
+      message: 'Senha atualizada com sucesso',
+      email: email
+    });
+  } catch (error: any) {
+    console.error('Error resetting password:', error);
     return res.status(500).json({ error: error.message });
   }
 });
