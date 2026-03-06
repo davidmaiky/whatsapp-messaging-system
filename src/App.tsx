@@ -116,9 +116,17 @@ export default function App() {
   };
 
   const fetchScheduledMessages = async () => {
-    const res = await fetch('/api/scheduled-messages');
-    const data = await res.json();
-    setScheduledMessages(data);
+    try {
+      const res = await fetch('/api/scheduled-messages', { cache: 'no-store' });
+      if (!res.ok) {
+        console.error('Error fetching scheduled messages:', res.status);
+        return;
+      }
+      const data = await res.json();
+      setScheduledMessages(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Error fetching scheduled messages:', error);
+    }
   };
 
   useEffect(() => {
@@ -527,29 +535,41 @@ export default function App() {
       
       if (editingScheduledMessage) {
         // Editando uma mensagem existente
-        await fetch(`/api/scheduled-messages/${editingScheduledMessage}`, {
+        const response = await fetch(`/api/scheduled-messages/${editingScheduledMessage}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, scheduledAt: utcDate }),
         });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Falha ao atualizar mensagem.');
+        }
+
         showNotification('success', 'Mensagem atualizada com sucesso!');
         setEditingScheduledMessage(null);
       } else {
         // Criando uma nova mensagem
-        await fetch('/api/schedule', {
+        const response = await fetch('/api/schedule', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, scheduledAt: utcDate }),
         });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Falha ao agendar mensagem.');
+        }
+
         showNotification('success', 'Mensagem agendada com sucesso!');
       }
-      fetchScheduledMessages();
+      await fetchScheduledMessages();
       setScheduledName('');
       setScheduledNumber('');
       setScheduledMessage('');
       setScheduledAt('');
-    } catch {
-      showNotification('error', editingScheduledMessage ? 'Falha ao atualizar mensagem.' : 'Falha ao agendar mensagem.');
+    } catch (error: any) {
+      showNotification('error', error?.message || (editingScheduledMessage ? 'Falha ao atualizar mensagem.' : 'Falha ao agendar mensagem.'));
     }
   };
 
@@ -877,23 +897,29 @@ export default function App() {
               </div>
             </div>
             
-            {scheduledMessages.length > 0 && (
-              <div className="mt-8 border-t pt-6">
-                <h3 className="font-semibold text-gray-800 mb-4 text-lg">Mensagens Agendadas ({scheduledMessages.length})</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b-2 border-gray-200 bg-blue-50">
-                        <th className="p-3 text-left text-sm font-semibold text-gray-700">Nome</th>
-                        <th className="p-3 text-left text-sm font-semibold text-gray-700">Número</th>
-                        <th className="p-3 text-left text-sm font-semibold text-gray-700">Mensagem</th>
-                        <th className="p-3 text-left text-sm font-semibold text-gray-700">Hora Agendada</th>
-                        <th className="p-3 text-left text-sm font-semibold text-gray-700">Status</th>
-                        <th className="p-3 text-center text-sm font-semibold text-gray-700">Ações</th>
+            <div className="mt-8 border-t pt-6">
+              <h3 className="font-semibold text-gray-800 mb-4 text-lg">Mensagens Agendadas ({scheduledMessages.length})</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b-2 border-gray-200 bg-blue-50">
+                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Nome</th>
+                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Número</th>
+                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Mensagem</th>
+                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Hora Agendada</th>
+                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Status</th>
+                      <th className="p-3 text-center text-sm font-semibold text-gray-700">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scheduledMessages.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-4 text-center text-sm text-gray-500">
+                          Nenhum agendamento encontrado.
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {scheduledMessages.map(msg => (
+                    ) : (
+                      scheduledMessages.map(msg => (
                         <tr key={msg.id} className="border-b border-gray-100 hover:bg-blue-50 transition">
                           <td className="p-3 text-sm text-gray-700">{msg.name || '-'}</td>
                           <td className="p-3 text-sm text-gray-700 font-mono">{msg.number}</td>
@@ -936,12 +962,12 @@ export default function App() {
                             </div>
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
-            )}
+            </div>
           </div>
         );
 

@@ -79,6 +79,7 @@ try {
 
 db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)").run('instance_name', process.env.EVOLUTION_INSTANCE || 'default');
 db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)").run('timezone', 'America/Sao_Paulo');
+db.prepare("UPDATE scheduled_messages SET status = 'Agendado' WHERE status IS NULL OR TRIM(status) = ''").run();
 
 const app = express();
 app.use(express.json());
@@ -218,7 +219,7 @@ app.post("/api/schedule", (req, res) => {
     console.error("Attempted to schedule message with empty text");
     return res.status(400).json({ error: "Message is required" });
   }
-  const stmt = db.prepare("INSERT INTO scheduled_messages (name, number, message, scheduled_at) VALUES (?, ?, ?, ?)");
+  const stmt = db.prepare("INSERT INTO scheduled_messages (name, number, message, scheduled_at, status) VALUES (?, ?, ?, ?, 'Agendado')");
   stmt.run(name, number, message, scheduledAt);
   res.json({ status: "scheduled" });
 });
@@ -589,15 +590,26 @@ app.delete("/api/roles/:id", (req, res) => {
 // Cron job to check for scheduled messages
 cron.schedule("* * * * *", async () => {
   const now = new Date().toISOString().slice(0, 16);
-  const stmt = db.prepare("SELECT * FROM scheduled_messages WHERE scheduled_at <= ?");
+  const stmt = db.prepare("SELECT * FROM scheduled_messages WHERE scheduled_at <= ? AND status = 'Agendado'");
   const messages = stmt.all(now);
   console.log(`Checking scheduled messages. Now: ${now}, Found: ${messages.length}`);
   
   for (const msg of messages) {
+    const claim = db
+      .prepare("UPDATE scheduled_messages SET status = 'Processando' WHERE id = ? AND status = 'Agendado'")
+      .run(msg.id);
+
+    if (claim.changes === 0) {
+      continue;
+    }
+
     const success = await sendWhatsAppMessage(msg.number, msg.message, msg.name);
     if (success) {
       db.prepare("DELETE FROM scheduled_messages WHERE id = ?").run(msg.id);
+    } else {
+      db.prepare("UPDATE scheduled_messages SET status = 'Agendado' WHERE id = ?").run(msg.id);
     }
+
     await new Promise(resolve => setTimeout(resolve, 2000));
   }
 });
