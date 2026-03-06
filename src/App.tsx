@@ -4,7 +4,7 @@
  */
 
 import { useState, ChangeEvent, useEffect } from 'react';
-import { CheckCircle2, AlertCircle } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Send, Users, Clock, Settings, Upload, Trash2, Search, MessageCircle } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -153,117 +153,286 @@ export default function App() {
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50">
       {notification && (
-        <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg flex items-center gap-2 ${notification.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
-          {notification.type === 'success' ? <CheckCircle2 /> : <AlertCircle />}
-          {notification.message}
+        <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg flex items-center gap-3 z-50 animate-in slide-in-from-top ${notification.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-500 text-white'}`}>
+          {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+          <span className="font-medium">{notification.message}</span>
         </div>
       )}
-      <h1 className="text-2xl font-bold mb-4">Mensagens WhatsApp</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div>
-          <input className="w-full p-2 mb-2 border" placeholder="Nome" value={name} onChange={e => setName(e.target.value)} />
-          <input className="w-full p-2 mb-2 border" placeholder="Número" value={number} onChange={e => setNumber(e.target.value)} />
-          <textarea className="w-full p-2 mb-2 border" placeholder="Mensagem" value={message} onChange={e => setMessage(e.target.value)} />
-          <button className="w-full p-2 bg-blue-500 text-white mb-2" onClick={sendNow}>Enviar Agora</button>
-          
-          <h2 className="text-xl font-bold mt-4 mb-2">Envio em Massa</h2>
-          <input type="file" className="w-full p-2 mb-2 border" onChange={handleFileUpload} />
-          <textarea className="w-full p-2 mb-2 border" placeholder="Mensagem para envio em massa" value={message} onChange={e => setMessage(e.target.value)} />
-          <div className="mb-2">
-            <label className="block text-sm font-medium">Atraso entre mensagens (segundos):</label>
-            <input type="number" className="w-full p-2 border" value={delay} onChange={e => setDelay(Number(e.target.value))} min="1" />
-          </div>
-          <div className="flex gap-2">
-            <button className="flex-1 p-2 bg-purple-500 text-white mb-2" onClick={sendBulk} disabled={bulkNumbers.length === 0}>Enviar Massa ({bulkNumbers.length} números)</button>
-            <button className="p-2 bg-gray-500 text-white mb-2" onClick={() => setBulkNumbers([])} disabled={bulkNumbers.length === 0}>Limpar</button>
-          </div>
-
-          <h2 className="text-xl font-bold mt-4 mb-2">Agendar</h2>
-          <input className="w-full p-2 mb-2 border" placeholder="Nome" value={scheduledName} onChange={e => setScheduledName(e.target.value)} />
-          <input className="w-full p-2 mb-2 border" placeholder="Número" value={scheduledNumber} onChange={e => setScheduledNumber(e.target.value)} />
-          <textarea className="w-full p-2 mb-2 border" placeholder="Mensagem" value={scheduledMessage} onChange={e => setScheduledMessage(e.target.value)} />
-          <input type="datetime-local" className="w-full p-2 mb-2 border" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} />
-          <button className="w-full p-2 bg-green-500 text-white" onClick={scheduleMessage}>Agendar</button>
-        </div>
-        <div>
-          <div className="flex justify-between items-center mb-2">
-            <h2 className="text-xl font-bold">Histórico de Mensagens</h2>
-            <button className="p-1 px-2 bg-red-500 text-white text-sm rounded" onClick={clearHistory}>Limpar Histórico</button>
-          </div>
-          <input
-            type="text"
-            placeholder="Pesquisar por nome, número ou mensagem..."
-            className="w-full p-2 mb-4 border rounded"
-            value={searchTerm}
-            onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-          />
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b">
-                <th className="p-2 text-left">Nome</th>
-                <th className="p-2 text-left">Número</th>
-                <th className="p-2 text-left">Mensagem</th>
-                <th className="p-2 text-left">Horário</th>
-                <th className="p-2 text-left">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {messages
-                .filter(msg =>
-                  msg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                  msg.number.includes(searchTerm) ||
-                  msg.message.toLowerCase().includes(searchTerm.toLowerCase())
-                )
-                .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-                .map(msg => (
-                  <tr key={msg.id} className="border-b">
-                    <td className="p-2">{msg.name || '-'}</td>
-                    <td className="p-2">{msg.number}</td>
-                    <td className="p-2">{msg.message}</td>
-                    <td className="p-2">{new Date(msg.created_at).toLocaleString()}</td>
-                    <td className="p-2">{msg.status}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-          <div className="flex justify-between items-center mt-4">
-            <button
-              className="p-2 bg-gray-200 rounded disabled:opacity-50"
-              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-              disabled={currentPage === 1}
-            >
-              Anterior
-            </button>
-            <span>Página {currentPage} de {Math.max(1, Math.ceil(messages.filter(msg =>
-              msg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              msg.number.includes(searchTerm) ||
-              msg.message.toLowerCase().includes(searchTerm.toLowerCase())
-            ).length / itemsPerPage))}</span>
-            <button
-              className="p-2 bg-gray-200 rounded disabled:opacity-50"
-              onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.max(1, Math.ceil(messages.filter(msg =>
-                msg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                msg.number.includes(searchTerm) ||
-                msg.message.toLowerCase().includes(searchTerm.toLowerCase())
-              ).length / itemsPerPage))))}
-              disabled={currentPage === Math.max(1, Math.ceil(messages.filter(msg =>
-                msg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                msg.number.includes(searchTerm) ||
-                msg.message.toLowerCase().includes(searchTerm.toLowerCase())
-              ).length / itemsPerPage))}
-            >
-              Próximo
-            </button>
+      
+      {/* Header */}
+      <div className="bg-gradient-to-r from-green-600 to-green-700 text-white shadow-lg">
+        <div className="max-w-7xl mx-auto px-8 py-6">
+          <div className="flex items-center gap-3">
+            <MessageCircle className="w-8 h-8" />
+            <div>
+              <h1 className="text-3xl font-bold">WhatsApp Manager</h1>
+              <p className="text-green-100 text-sm">Sistema de Envio de Mensagens</p>
+            </div>
           </div>
         </div>
       </div>
-      <div className="mt-8 p-4 border rounded">
-        <h2 className="text-xl font-bold mb-2">Configurações</h2>
-        <label className="block text-sm font-medium">Nome da Instância:</label>
-        <input className="w-full p-2 mb-2 border" value={instanceName} onChange={e => setInstanceName(e.target.value)} />
-        <button className="p-2 bg-blue-500 text-white" onClick={updateSettings}>Salvar</button>
+
+      <div className="max-w-7xl mx-auto px-8 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Left Column - Forms */}
+          <div className="space-y-6">
+            {/* Send Now Card */}
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+              <div className="flex items-center gap-2 mb-4">
+                <Send className="w-5 h-5 text-green-600" />
+                <h2 className="text-xl font-bold text-gray-800">Enviar Agora</h2>
+              </div>
+              <div className="space-y-3">
+                <input 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition" 
+                  placeholder="Nome (opcional)" 
+                  value={name} 
+                  onChange={e => setName(e.target.value)} 
+                />
+                <input 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition" 
+                  placeholder="Número (ex: 5511999999999)" 
+                  value={number} 
+                  onChange={e => setNumber(e.target.value)} 
+                />
+                <textarea 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition min-h-[100px]" 
+                  placeholder="Digite sua mensagem..." 
+                  value={message} 
+                  onChange={e => setMessage(e.target.value)} 
+                />
+                <button 
+                  className="w-full p-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition shadow-md hover:shadow-lg" 
+                  onClick={sendNow}
+                >
+                  <Send className="w-4 h-4" />
+                  Enviar Mensagem
+                </button>
+              </div>
+            </div>
+
+            {/* Bulk Send Card */}
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+              <div className="flex items-center gap-2 mb-4">
+                <Users className="w-5 h-5 text-purple-600" />
+                <h2 className="text-xl font-bold text-gray-800">Envio em Massa</h2>
+              </div>
+              <div className="space-y-3">
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 hover:border-purple-500 transition">
+                  <label className="flex items-center justify-center gap-2 cursor-pointer">
+                    <Upload className="w-5 h-5 text-gray-500" />
+                    <span className="text-sm text-gray-600">
+                      {bulkNumbers.length > 0 ? `${bulkNumbers.length} números carregados` : 'Carregar arquivo .txt com números'}
+                    </span>
+                    <input type="file" className="hidden" onChange={handleFileUpload} accept=".txt" />
+                  </label>
+                </div>
+                <textarea 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition min-h-[100px]" 
+                  placeholder="Mensagem para envio em massa..." 
+                  value={message} 
+                  onChange={e => setMessage(e.target.value)} 
+                />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Intervalo entre mensagens (segundos)
+                  </label>
+                  <input 
+                    type="number" 
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition" 
+                    value={delay} 
+                    onChange={e => setDelay(Number(e.target.value))} 
+                    min="1" 
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button 
+                    className="flex-1 p-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" 
+                    onClick={sendBulk} 
+                    disabled={bulkNumbers.length === 0}
+                  >
+                    <Users className="w-4 h-4" />
+                    Enviar ({bulkNumbers.length})
+                  </button>
+                  <button 
+                    className="p-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed" 
+                    onClick={() => setBulkNumbers([])} 
+                    disabled={bulkNumbers.length === 0}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Schedule Card */}
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+              <div className="flex items-center gap-2 mb-4">
+                <Clock className="w-5 h-5 text-blue-600" />
+                <h2 className="text-xl font-bold text-gray-800">Agendar Mensagem</h2>
+              </div>
+              <div className="space-y-3">
+                <input 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" 
+                  placeholder="Nome (opcional)" 
+                  value={scheduledName} 
+                  onChange={e => setScheduledName(e.target.value)} 
+                />
+                <input 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" 
+                  placeholder="Número (ex: 5511999999999)" 
+                  value={scheduledNumber} 
+                  onChange={e => setScheduledNumber(e.target.value)} 
+                />
+                <textarea 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition min-h-[100px]" 
+                  placeholder="Mensagem a ser agendada..." 
+                  value={scheduledMessage} 
+                  onChange={e => setScheduledMessage(e.target.value)} 
+                />
+                <input 
+                  type="datetime-local" 
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" 
+                  value={scheduledAt} 
+                  onChange={e => setScheduledAt(e.target.value)} 
+                />
+                <button 
+                  className="w-full p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition shadow-md hover:shadow-lg" 
+                  onClick={scheduleMessage}
+                >
+                  <Clock className="w-4 h-4" />
+                  Agendar Mensagem
+                </button>
+              </div>
+            </div>
+
+            {/* Settings Card */}
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+              <div className="flex items-center gap-2 mb-4">
+                <Settings className="w-5 h-5 text-gray-600" />
+                <h2 className="text-xl font-bold text-gray-800">Configurações</h2>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nome da Instância
+                  </label>
+                  <input 
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-transparent transition" 
+                    value={instanceName} 
+                    onChange={e => setInstanceName(e.target.value)} 
+                    placeholder="Digite o nome da instância"
+                  />
+                </div>
+                <button 
+                  className="w-full p-3 bg-gray-700 hover:bg-gray-800 text-white rounded-lg font-medium transition shadow-md hover:shadow-lg" 
+                  onClick={updateSettings}
+                >
+                  Salvar Configurações
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column - History */}
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-800">Histórico de Mensagens</h2>
+                <button 
+                  className="p-2 px-4 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition flex items-center gap-2 shadow-md" 
+                  onClick={clearHistory}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Limpar
+                </button>
+              </div>
+              
+              <div className="relative mb-4">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Pesquisar por nome, número ou mensagem..."
+                  className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                  value={searchTerm}
+                  onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                />
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b-2 border-gray-200 bg-gray-50">
+                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Nome</th>
+                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Número</th>
+                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Mensagem</th>
+                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Horário</th>
+                      <th className="p-3 text-left text-sm font-semibold text-gray-700">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {messages
+                      .filter(msg =>
+                        msg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        msg.number.includes(searchTerm) ||
+                        msg.message.toLowerCase().includes(searchTerm.toLowerCase())
+                      )
+                      .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+                      .map(msg => (
+                        <tr key={msg.id} className="border-b border-gray-100 hover:bg-gray-50 transition">
+                          <td className="p-3 text-sm text-gray-700">{msg.name || '-'}</td>
+                          <td className="p-3 text-sm text-gray-700 font-mono">{msg.number}</td>
+                          <td className="p-3 text-sm text-gray-600 max-w-xs truncate">{msg.message}</td>
+                          <td className="p-3 text-sm text-gray-500">{new Date(msg.created_at).toLocaleString('pt-BR')}</td>
+                          <td className="p-3">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              msg.status === 'sent' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {msg.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-between items-center mt-6">
+                <button
+                  className="p-2 px-4 bg-gray-200 hover:bg-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition font-medium text-sm"
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                >
+                  ← Anterior
+                </button>
+                <span className="text-sm text-gray-600 font-medium">
+                  Página {currentPage} de {Math.max(1, Math.ceil(messages.filter(msg =>
+                    msg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    msg.number.includes(searchTerm) ||
+                    msg.message.toLowerCase().includes(searchTerm.toLowerCase())
+                  ).length / itemsPerPage))}
+                </span>
+                <button
+                  className="p-2 px-4 bg-gray-200 hover:bg-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition font-medium text-sm"
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.max(1, Math.ceil(messages.filter(msg =>
+                    msg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    msg.number.includes(searchTerm) ||
+                    msg.message.toLowerCase().includes(searchTerm.toLowerCase())
+                  ).length / itemsPerPage))))}
+                  disabled={currentPage === Math.max(1, Math.ceil(messages.filter(msg =>
+                    msg.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    msg.number.includes(searchTerm) ||
+                    msg.message.toLowerCase().includes(searchTerm.toLowerCase())
+                  ).length / itemsPerPage))}
+                >
+                  Próximo →
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
