@@ -136,27 +136,44 @@ export default function App() {
     e.preventDefault();
     setIsLoggingIn(true);
     try {
+      console.log('Attempting login with email:', loginEmail);
       const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: loginEmail, password: loginPassword }),
       });
       
+      console.log('Login response status:', response.status);
+      
       if (!response.ok) {
-        const error = await response.json();
+        const text = await response.text();
+        console.log('Login error response:', text);
+        let error;
+        try {
+          error = JSON.parse(text);
+        } catch (e) {
+          console.error('Failed to parse error response:', e);
+          showNotification('error', 'Erro no servidor. Verifique os logs.');
+          return;
+        }
         showNotification('error', error.error || 'Credenciais inválidas');
         return;
       }
       
-      const data = await response.json();
+      const text = await response.text();
+      console.log('Login success response:', text);
+      const data = JSON.parse(text);
+      
+      console.log('User data:', data.user);
       setCurrentUser(data.user);
       setIsAuthenticated(true);
       localStorage.setItem('currentUser', JSON.stringify(data.user));
       showNotification('success', `Bem-vindo, ${data.user.username}!`);
       setLoginEmail('');
       setLoginPassword('');
-    } catch (error) {
-      showNotification('error', 'Erro ao fazer login');
+    } catch (error: any) {
+      console.error('Login error:', error);
+      showNotification('error', `Erro ao fazer login: ${error.message || 'Erro desconhecido'}`);
     } finally {
       setIsLoggingIn(false);
     }

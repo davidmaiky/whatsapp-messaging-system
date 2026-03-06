@@ -198,28 +198,43 @@ app.get("/api/scheduled-messages", (req, res) => {
 // Authentication route
 app.post("/api/login", (req, res) => {
   try {
+    console.log('POST /api/login - Request received');
     const { email, password } = req.body;
-    console.log('POST /api/login - Login attempt:', email);
+    console.log('POST /api/login - Login attempt for email:', email);
     
     if (!email || !password) {
+      console.log('Login failed: Missing email or password');
       return res.status(400).json({ error: 'Email e senha são obrigatórios' });
     }
     
-    // Find user by email (in production, passwords should be hashed)
+    // Verify users table exists
+    const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get();
+    if (!tableExists) {
+      console.error('ERROR: users table does not exist!');
+      return res.status(500).json({ error: 'Tabela de usuários não existe. Reinicie o servidor.' });
+    }
+    
+    // Find user by email
+    console.log('Searching for user with email:', email);
     const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email) as any;
+    console.log('User found:', user ? 'Yes' : 'No');
     
     if (!user) {
-      console.log('Login failed: User not found');
+      console.log('Login failed: User not found for email:', email);
+      // List all users for debugging
+      const allUsers = db.prepare("SELECT email FROM users").all();
+      console.log('Available users:', allUsers);
       return res.status(401).json({ error: 'Email ou senha inválidos' });
     }
     
+    console.log('Checking password for user:', user.username);
     // Check password (in production, use bcrypt.compare)
     if (user.password !== password) {
-      console.log('Login failed: Invalid password');
+      console.log('Login failed: Invalid password for user:', user.username);
       return res.status(401).json({ error: 'Email ou senha inválidos' });
     }
     
-    console.log('Login successful:', user.username);
+    console.log('Login successful for user:', user.username);
     
     // Return user data without password
     const { password: _, ...userWithoutPassword } = user;
@@ -228,8 +243,9 @@ app.post("/api/login", (req, res) => {
       user: userWithoutPassword
     });
   } catch (error: any) {
-    console.error('Error during login:', error.message);
-    return res.status(500).json({ error: 'Erro ao fazer login' });
+    console.error('Error during login:', error);
+    console.error('Error stack:', error.stack);
+    return res.status(500).json({ error: `Erro ao fazer login: ${error.message}` });
   }
 });
 
