@@ -148,6 +148,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const [instanceName, setInstanceName] = useState('');
   const [newInstanceName, setNewInstanceName] = useState('');
+  const [reconnectInstanceName, setReconnectInstanceName] = useState('');
   const [newInstanceIntegration, setNewInstanceIntegration] = useState<'WHATSAPP-BAILEYS' | 'WHATSAPP-BUSINESS'>('WHATSAPP-BAILEYS');
   const [newInstanceQrcode, setNewInstanceQrcode] = useState(true);
   const [createdInstanceConnectName, setCreatedInstanceConnectName] = useState('');
@@ -157,6 +158,7 @@ export default function App() {
   const [createdInstanceConnectError, setCreatedInstanceConnectError] = useState('');
   const [createdInstanceConnectionState, setCreatedInstanceConnectionState] = useState('');
   const [isCreatingInstance, setIsCreatingInstance] = useState(false);
+  const [isConnectingExistingInstance, setIsConnectingExistingInstance] = useState(false);
   const [isRefreshingInstanceQr, setIsRefreshingInstanceQr] = useState(false);
   const [timezone, setTimezone] = useState('America/Sao_Paulo');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
@@ -612,6 +614,65 @@ export default function App() {
       showNotification('error', error?.message || 'Erro ao atualizar QR Code da instância');
     } finally {
       setIsRefreshingInstanceQr(false);
+    }
+  };
+
+  const connectExistingEvolutionInstance = async () => {
+    const normalizedReconnectName = reconnectInstanceName.trim();
+
+    if (!normalizedReconnectName) {
+      showNotification('error', 'Informe o nome da instância para reconectar');
+      return;
+    }
+
+    setIsConnectingExistingInstance(true);
+    hasShownConnectionSuccessNotification.current = false;
+    setCreatedInstanceConnectName(normalizedReconnectName);
+    setCreatedInstanceConnectCode('');
+    setCreatedInstancePairingCode('');
+    setCreatedInstanceConnectQrImage('');
+    setCreatedInstanceConnectError('');
+    setCreatedInstanceConnectionState('');
+
+    try {
+      const response = await fetch(`/api/evolution/instances/${encodeURIComponent(normalizedReconnectName)}/connect`);
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const errorMessage = data.error || 'Não foi possível conectar à instância informada';
+        setCreatedInstanceConnectError(errorMessage);
+        showNotification('error', errorMessage);
+        return;
+      }
+
+      const { connectCode, pairingCode, connectQrImage } = extractEvolutionConnectFields(data);
+
+      if (!connectCode && !pairingCode && !connectQrImage) {
+        setCreatedInstanceConnectError('QR Code ainda não disponível para esta instância');
+        showNotification('error', 'QR Code ainda não disponível para esta instância');
+        return;
+      }
+
+      setCreatedInstanceConnectCode(connectCode);
+      setCreatedInstancePairingCode(pairingCode);
+      setCreatedInstanceConnectQrImage(connectQrImage);
+      setCreatedInstanceConnectError('');
+
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceName: normalizedReconnectName }),
+      });
+
+      setInstanceName(normalizedReconnectName);
+      await checkEvolutionInstanceConnectionState(normalizedReconnectName);
+      showNotification('success', `Instância "${normalizedReconnectName}" pronta para reconexão. Escaneie o QR Code.`);
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Erro ao conectar instância existente';
+      setCreatedInstanceConnectError(errorMessage);
+      showNotification('error', errorMessage);
+    } finally {
+      setIsConnectingExistingInstance(false);
     }
   };
 
@@ -2614,6 +2675,32 @@ Pedro Oliveira, 5511977777777`;
             {/* Tab Content */}
             {settingsTab === 'general' && canAccessSettingsTab('general') && (
               <div className="space-y-4 max-w-2xl">
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Reconectar Instância Existente
+                  </label>
+                  <div className="space-y-3">
+                    <input
+                      className="w-full p-3 border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+                      value={reconnectInstanceName}
+                      onChange={e => setReconnectInstanceName(e.target.value)}
+                      placeholder="Ex: minha-instancia"
+                    />
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 mt-3">
+                    <button
+                      type="button"
+                      className="px-4 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-300 disabled:cursor-not-allowed text-slate-900 rounded-xl font-semibold transition"
+                      onClick={connectExistingEvolutionInstance}
+                      disabled={isConnectingExistingInstance || isCreatingInstance || isRefreshingInstanceQr}
+                    >
+                      {isConnectingExistingInstance ? 'Conectando...' : 'Conectar Instância'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Use este fluxo para instâncias já criadas que desconectaram por acidente.
+                  </p>
+                </div>
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
                   <label className="block text-sm font-medium text-slate-700 mb-2">
                     Criar Nova Instância Evolution API
