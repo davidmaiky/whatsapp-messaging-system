@@ -34,7 +34,8 @@ type MediaType = 'image' | 'document' | 'video';
 
 interface MediaAttachment {
   type: MediaType;
-  data: string;
+  file?: File;
+  data?: string;
   fileName?: string;
   mimeType?: string;
 }
@@ -77,6 +78,14 @@ interface BulkCampaignStatus {
   endedAt: string | null;
   messagePreview: string;
   progress: number;
+}
+
+interface PaginatedResponse<T> {
+  items: T[];
+  page: number;
+  limit: number;
+  totalItems: number;
+  totalPages: number;
 }
 
 type Page = 'send-now' | 'contacts' | 'bulk-send' | 'schedule' | 'history' | 'settings';
@@ -129,6 +138,11 @@ export default function App() {
   const [delay, setDelay] = useState(1);
   const [messages, setMessages] = useState<Message[]>([]);
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
+  const [historyTotalItems, setHistoryTotalItems] = useState(0);
+  const [historyTotalPages, setHistoryTotalPages] = useState(1);
+  const [scheduledCurrentPage, setScheduledCurrentPage] = useState(1);
+  const [scheduledTotalItems, setScheduledTotalItems] = useState(0);
+  const [scheduledTotalPages, setScheduledTotalPages] = useState(1);
   const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -151,10 +165,15 @@ export default function App() {
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [editingScheduledMessage, setEditingScheduledMessage] = useState<number | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isTabVisible, setIsTabVisible] = useState(() =>
+    typeof document === 'undefined' ? true : document.visibilityState === 'visible'
+  );
   const [bulkCampaignStatus, setBulkCampaignStatus] = useState<BulkCampaignStatus | null>(null);
   const sendNowFileInputRef = useRef<HTMLInputElement | null>(null);
   const bulkFileInputRef = useRef<HTMLInputElement | null>(null);
   const scheduledFileInputRef = useRef<HTMLInputElement | null>(null);
+  const editUserModalRef = useRef<HTMLDivElement | null>(null);
+  const editRoleModalRef = useRef<HTMLDivElement | null>(null);
   const itemsPerPage = 10;
 
   const showNotification = (type: 'success' | 'error', message: string) => {
@@ -162,21 +181,83 @@ export default function App() {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const fetchMessages = async () => {
-    const res = await fetch('/api/messages');
-    const data = await res.json();
-    setMessages(data);
+  const fetchMessages = async (page = currentPage, term = searchTerm) => {
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(itemsPerPage),
+      });
+
+      const trimmedTerm = term.trim();
+      if (trimmedTerm) {
+        params.set('search', trimmedTerm);
+      }
+
+      const res = await fetch(`/api/messages?${params.toString()}`, { cache: 'no-store' });
+      if (!res.ok) {
+        console.error('Error fetching messages:', res.status);
+        return;
+      }
+
+      const data = await res.json() as PaginatedResponse<Message> | Message[];
+
+      if (Array.isArray(data)) {
+        setMessages(data);
+        setHistoryTotalItems(data.length);
+        setHistoryTotalPages(Math.max(1, Math.ceil(data.length / itemsPerPage)));
+        return;
+      }
+
+      const normalizedItems = Array.isArray(data.items) ? data.items : [];
+      const normalizedTotalItems = Number(data.totalItems || 0);
+      const normalizedTotalPages = Math.max(1, Number(data.totalPages || 1));
+      const normalizedPage = Math.max(1, Number(data.page || page));
+
+      setMessages(normalizedItems);
+      setHistoryTotalItems(normalizedTotalItems);
+      setHistoryTotalPages(normalizedTotalPages);
+
+      if (normalizedPage !== page) {
+        setCurrentPage(normalizedPage);
+      }
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+    }
   };
 
-  const fetchScheduledMessages = async () => {
+  const fetchScheduledMessages = async (page = scheduledCurrentPage) => {
     try {
-      const res = await fetch('/api/scheduled-messages', { cache: 'no-store' });
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(itemsPerPage),
+      });
+
+      const res = await fetch(`/api/scheduled-messages?${params.toString()}`, { cache: 'no-store' });
       if (!res.ok) {
         console.error('Error fetching scheduled messages:', res.status);
         return;
       }
-      const data = await res.json();
-      setScheduledMessages(Array.isArray(data) ? data : []);
+      const data = await res.json() as PaginatedResponse<ScheduledMessage> | ScheduledMessage[];
+
+      if (Array.isArray(data)) {
+        setScheduledMessages(data);
+        setScheduledTotalItems(data.length);
+        setScheduledTotalPages(Math.max(1, Math.ceil(data.length / itemsPerPage)));
+        return;
+      }
+
+      const normalizedItems = Array.isArray(data.items) ? data.items : [];
+      const normalizedTotalItems = Number(data.totalItems || 0);
+      const normalizedTotalPages = Math.max(1, Number(data.totalPages || 1));
+      const normalizedPage = Math.max(1, Number(data.page || page));
+
+      setScheduledMessages(normalizedItems);
+      setScheduledTotalItems(normalizedTotalItems);
+      setScheduledTotalPages(normalizedTotalPages);
+
+      if (normalizedPage !== page) {
+        setScheduledCurrentPage(normalizedPage);
+      }
     } catch (error) {
       console.error('Error fetching scheduled messages:', error);
     }
@@ -210,32 +291,79 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchMessages();
-      fetchScheduledMessages();
-      fetchBulkCampaignStatus();
-      fetchSettings();
-      fetchUsers();
-      fetchRoles();
-      fetchContacts();
-      const interval = setInterval(() => {
-        fetchMessages();
-        fetchScheduledMessages();
-        fetchBulkCampaignStatus();
-      }, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [isAuthenticated]);
+    const handleVisibilityChange = () => {
+      setIsTabVisible(document.visibilityState === 'visible');
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) return;
 
+    setCurrentPage(1);
+    setScheduledCurrentPage(1);
+
+    fetchMessages(1, '');
+    fetchScheduledMessages(1);
+    fetchBulkCampaignStatus();
+    fetchSettings();
+    fetchUsers();
+    fetchRoles();
+    fetchContacts();
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || activePage !== 'history') return;
+
+    const debounce = setTimeout(() => {
+      fetchMessages(currentPage, searchTerm);
+    }, 250);
+
+    return () => clearTimeout(debounce);
+  }, [isAuthenticated, activePage, currentPage, searchTerm]);
+
+  useEffect(() => {
+    if (!isAuthenticated || activePage !== 'schedule') return;
+    fetchScheduledMessages(scheduledCurrentPage);
+  }, [isAuthenticated, activePage, scheduledCurrentPage]);
+
+  const shouldPollBulkStatus = activePage === 'bulk-send' || Boolean(bulkCampaignStatus?.isRunning);
+
+  useEffect(() => {
+    if (!isAuthenticated || !isTabVisible || activePage !== 'history') return;
+
     const interval = setInterval(() => {
-      fetchBulkCampaignStatus();
-    }, 2000);
+      fetchMessages(currentPage, searchTerm);
+    }, 10000);
 
     return () => clearInterval(interval);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isTabVisible, activePage, currentPage, searchTerm]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !isTabVisible || activePage !== 'schedule') return;
+
+    const interval = setInterval(() => {
+      fetchScheduledMessages(scheduledCurrentPage);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, isTabVisible, activePage, scheduledCurrentPage]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !isTabVisible || !shouldPollBulkStatus) return;
+
+    fetchBulkCampaignStatus();
+    const interval = setInterval(() => {
+      fetchBulkCampaignStatus();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, isTabVisible, shouldPollBulkStatus]);
 
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
@@ -448,6 +576,18 @@ export default function App() {
     if (!selectedContact) return;
     setScheduledName(selectedContact.name || '');
     setScheduledNumber(selectedContact.number);
+  };
+
+  const fillContactFormWithContact = (contactId: string) => {
+    const selectedContact = contacts.find((contact) => String(contact.id) === contactId);
+    if (!selectedContact) {
+      resetContactForm();
+      return;
+    }
+
+    setEditingContactId(selectedContact.id);
+    setContactName(selectedContact.name || '');
+    setContactNumber(selectedContact.number);
   };
 
   const createUser = async () => {
@@ -680,47 +820,72 @@ export default function App() {
     }
   };
 
-  const readFileAsDataUrl = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(new Error('Falha ao ler arquivo'));
-      reader.readAsDataURL(file);
-    });
-
   const pickMediaTypeFromFile = (file: File): MediaType | null => {
     if (file.type.startsWith('image/')) return 'image';
     if (file.type.startsWith('video/')) return 'video';
     return 'document';
   };
 
-  const buildMediaAttachment = async (file: File): Promise<MediaAttachment> => {
-    const dataUrl = await readFileAsDataUrl(file);
-    const type = pickMediaTypeFromFile(file);
+  const appendFormDataValue = (formData: FormData, key: string, value: unknown) => {
+    if (value === undefined || value === null) return;
 
-    if (!type) {
-      throw new Error('Tipo de arquivo não suportado');
+    if (Array.isArray(value) || (typeof value === 'object' && !(value instanceof File))) {
+      formData.append(key, JSON.stringify(value));
+      return;
     }
 
-    const base64Data = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+    formData.append(key, String(value));
+  };
+
+  const buildRequestOptionsWithOptionalMultipart = (
+    method: 'POST' | 'PUT',
+    payload: Record<string, unknown>,
+    media: MediaAttachment | null,
+  ): RequestInit => {
+    if (media?.file) {
+      const formData = new FormData();
+      Object.entries(payload).forEach(([key, value]) => appendFormDataValue(formData, key, value));
+      formData.append('media', media.file, media.file.name);
+      formData.append('mediaType', media.type);
+
+      return {
+        method,
+        body: formData,
+      };
+    }
 
     return {
-      type,
-      data: base64Data,
-      fileName: file.name,
-      mimeType: file.type,
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        media,
+      }),
     };
   };
 
-  const handleMediaSelection = async (
+  const handleMediaSelection = (
     event: ChangeEvent<HTMLInputElement>,
     target: 'send-now' | 'bulk' | 'schedule'
   ) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    const type = pickMediaTypeFromFile(file);
+    if (!type) {
+      showNotification('error', 'Tipo de arquivo não suportado.');
+      event.target.value = '';
+      return;
+    }
+
     try {
-      const media = await buildMediaAttachment(file);
+      const media: MediaAttachment = {
+        type,
+        file,
+        fileName: file.name,
+        mimeType: file.type,
+      };
+
       if (target === 'send-now') setSendNowMedia(media);
       if (target === 'bulk') setBulkMedia(media);
       if (target === 'schedule') setScheduledMedia(media);
@@ -739,11 +904,13 @@ export default function App() {
     }
 
     try {
-      const response = await fetch('/api/send-now', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, number, message, media: sendNowMedia }),
-      });
+      const requestOptions = buildRequestOptionsWithOptionalMultipart(
+        'POST',
+        { name, number, message },
+        sendNowMedia,
+      );
+
+      const response = await fetch('/api/send-now', requestOptions);
 
       const data = await response.json().catch(() => ({}));
 
@@ -769,11 +936,13 @@ export default function App() {
     }
 
     try {
-      const response = await fetch('/api/send-bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ numbers: bulkNumbers, message: bulkMessage, delay, media: bulkMedia }),
-      });
+      const requestOptions = buildRequestOptionsWithOptionalMultipart(
+        'POST',
+        { numbers: bulkNumbers, message: bulkMessage, delay },
+        bulkMedia,
+      );
+
+      const response = await fetch('/api/send-bulk', requestOptions);
 
       const data = await response.json().catch(() => ({}));
 
@@ -881,14 +1050,21 @@ Pedro Oliveira, 5511977777777`;
       // Converter o horário local para ISO UTC
       const localDate = new Date(scheduledAt);
       const utcDate = localDate.toISOString();
+      const requestPayload = {
+        name: scheduledName,
+        number: scheduledNumber,
+        message: scheduledMessage,
+        scheduledAt: utcDate,
+      };
       
       if (editingScheduledMessage) {
         // Editando uma mensagem existente
-        const response = await fetch(`/api/scheduled-messages/${editingScheduledMessage}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, media: scheduledMedia, scheduledAt: utcDate }),
-        });
+        const requestOptions = buildRequestOptionsWithOptionalMultipart(
+          'PUT',
+          requestPayload,
+          scheduledMedia,
+        );
+        const response = await fetch(`/api/scheduled-messages/${editingScheduledMessage}`, requestOptions);
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
@@ -899,11 +1075,12 @@ Pedro Oliveira, 5511977777777`;
         setEditingScheduledMessage(null);
       } else {
         // Criando uma nova mensagem
-        const response = await fetch('/api/schedule', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: scheduledName, number: scheduledNumber, message: scheduledMessage, media: scheduledMedia, scheduledAt: utcDate }),
-        });
+        const requestOptions = buildRequestOptionsWithOptionalMultipart(
+          'POST',
+          requestPayload,
+          scheduledMedia,
+        );
+        const response = await fetch('/api/schedule', requestOptions);
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
@@ -978,21 +1155,9 @@ Pedro Oliveira, 5511977777777`;
 
   const clearHistory = async () => {
     await fetch('/api/messages/clear', { method: 'POST' });
-    fetchMessages();
+    setCurrentPage(1);
+    fetchMessages(1, searchTerm);
     showNotification('success', 'Histórico limpo!');
-  };
-
-  const messageMatchesSearch = (msg: Message, term: string) => {
-    const query = term.trim().toLowerCase();
-    if (!query) return true;
-
-    return (
-      (msg.name || '').toLowerCase().includes(query) ||
-      msg.number.includes(query) ||
-      (msg.message || '').toLowerCase().includes(query) ||
-      (msg.media_name || '').toLowerCase().includes(query) ||
-      (msg.media_type || '').toLowerCase().includes(query)
-    );
   };
 
   const mediaTypeLabelMap: Record<string, string> = {
@@ -1087,6 +1252,41 @@ Pedro Oliveira, 5511977777777`;
     setIsMobileMenuOpen(false);
   }, [activePage]);
 
+  useEffect(() => {
+    if (editingUser) {
+      editUserModalRef.current?.focus();
+    }
+  }, [editingUser]);
+
+  useEffect(() => {
+    if (editingRole) {
+      editRoleModalRef.current?.focus();
+    }
+  }, [editingRole]);
+
+  useEffect(() => {
+    if (!editingUser && !editingRole) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+
+      if (editingRole) {
+        setEditingRole(null);
+        return;
+      }
+
+      if (editingUser) {
+        setEditingUser(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+
+    return () => {
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [editingUser, editingRole]);
+
   const renderPage = () => {
     if (!canAccessPage(activePage)) {
       return (
@@ -1109,12 +1309,12 @@ Pedro Oliveira, 5511977777777`;
               </div>
 
               <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
-                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Detalhes do Destinatário</h3>
+                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-500">Detalhes do Destinatário</h3>
                 <div>
                   <label className="text-sm font-medium text-slate-700 block mb-2">Selecionar contato salvo</label>
                   <div className="relative">
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                       <input
                         type="text"
                         placeholder="Digite o nome ou número do contato..."
@@ -1188,7 +1388,7 @@ Pedro Oliveira, 5511977777777`;
               </section>
 
               <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
-                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Escrever Mensagem</h3>
+                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-500">Escrever Mensagem</h3>
                 <textarea
                   className="w-full min-h-[220px] rounded-xl border-slate-200 bg-slate-50 text-sm leading-relaxed focus:border-emerald-500 focus:ring-emerald-500"
                   placeholder="Digite sua mensagem aqui... use {{name}} para personalizar."
@@ -1226,7 +1426,7 @@ Pedro Oliveira, 5511977777777`;
               </section>
 
               <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
-                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400 mb-4">Agendamento de Envio</h3>
+                <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-500 mb-4">Agendamento de Envio</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                     <p className="font-semibold text-slate-900 text-sm">Enviar Imediatamente</p>
@@ -1247,7 +1447,7 @@ Pedro Oliveira, 5511977777777`;
                 onClick={sendNow}
               >
                 <Rocket className="w-4 h-4" />
-                Enviar Campanha
+                  Enviar Mensagem
               </button>
             </div>
 
@@ -1262,7 +1462,7 @@ Pedro Oliveira, 5511977777777`;
                 </div>
               </div>
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-                <p className="text-xs font-bold tracking-[0.14em] uppercase text-slate-400 mb-4 text-center">Pré-visualização ao Vivo</p>
+                <p className="text-xs font-bold tracking-[0.14em] uppercase text-slate-500 mb-4 text-center">Pré-visualização ao Vivo</p>
                 <div className="max-w-[280px] mx-auto rounded-[2rem] border-[7px] border-slate-800 bg-slate-100 overflow-hidden">
                   <div className="bg-[#075e54] text-white p-3 text-xs font-semibold">{name || 'Contato'}</div>
                   <div className="p-3 min-h-[260px] bg-[#e5ddd5]">
@@ -1270,7 +1470,7 @@ Pedro Oliveira, 5511977777777`;
                       {message || 'Sua mensagem vai aparecer aqui.'}
                     </div>
                   </div>
-                  <div className="h-12 bg-white px-3 flex items-center justify-between text-slate-400">
+                  <div className="h-12 bg-white px-3 flex items-center justify-between text-slate-500">
                     <Smartphone className="w-4 h-4" />
                     <div className="h-2 w-32 rounded-full bg-slate-200" />
                   </div>
@@ -1299,7 +1499,7 @@ Pedro Oliveira, 5511977777777`;
                     <Upload className="w-10 h-10 mx-auto text-emerald-500 mb-3" />
                     <p className="font-semibold text-slate-800">Upload TXT</p>
                     <p className="text-sm text-slate-500 mt-1">Arraste o arquivo ou clique para selecionar.</p>
-                    <p className="text-xs text-slate-400 mt-3">Formato: Nome, Telefone (uma linha por contato)</p>
+                    <p className="text-xs text-slate-500 mt-3">Formato: Nome, Telefone (uma linha por contato)</p>
                     <input type="file" className="hidden" onChange={handleFileUpload} accept=".txt" />
                   </label>
 
@@ -1478,7 +1678,7 @@ Pedro Oliveira, 5511977777777`;
                 <div className="p-4 bg-[#e5ddd5] min-h-[260px] flex items-end">
                   <div className="bg-white rounded-lg rounded-tl-none shadow-sm p-3 max-w-[90%]">
                     <p className="text-sm text-slate-800 break-words">{bulkMessage || 'Prévia da mensagem da campanha.'}</p>
-                    <p className="text-[10px] text-slate-400 text-right mt-1">10:45</p>
+                    <p className="text-[10px] text-slate-500 text-right mt-1">10:45</p>
                   </div>
                 </div>
               </div>
@@ -1511,7 +1711,7 @@ Pedro Oliveira, 5511977777777`;
                     <div className="flex flex-col sm:flex-row gap-2">
                       <select
                         className="w-full rounded-xl border-slate-200 bg-slate-50 text-sm focus:border-emerald-500 focus:ring-emerald-500"
-                        onChange={(e) => fillScheduleWithContact(e.target.value)}
+                        onChange={(e) => fillContactFormWithContact(e.target.value)}
                         defaultValue=""
                       >
                         <option value="">Escolha um contato...</option>
@@ -1522,10 +1722,10 @@ Pedro Oliveira, 5511977777777`;
                         ))}
                       </select>
                       <button
-                        onClick={() => setActivePage('contacts')}
+                        onClick={resetContactForm}
                         className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition whitespace-nowrap"
                       >
-                        Gerenciar contatos
+                        Limpar formulário
                       </button>
                     </div>
                   </div>
@@ -1608,6 +1808,7 @@ Pedro Oliveira, 5511977777777`;
                                 onClick={() => editContact(contact)}
                                 className="p-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg transition shadow-sm"
                                 title="Editar"
+                                aria-label="Editar contato"
                               >
                                 <Edit2 className="w-4 h-4" />
                               </button>
@@ -1615,6 +1816,7 @@ Pedro Oliveira, 5511977777777`;
                                 onClick={() => deleteContact(contact.id)}
                                 className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition shadow-sm"
                                 title="Excluir"
+                                aria-label="Excluir contato"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -1655,13 +1857,13 @@ Pedro Oliveira, 5511977777777`;
                 </div>
 
                 <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
-                  <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Detalhes do Destinatário</h3>
+                  <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-500">Detalhes do Destinatário</h3>
                   <div>
                     <label className="text-sm font-medium text-slate-700 block mb-2">Selecionar contato salvo</label>
                     <div className="space-y-2">
                       <div className="relative">
                         <div className="relative">
-                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
                           <input
                             type="text"
                             placeholder="Digite o nome ou número do contato..."
@@ -1744,7 +1946,7 @@ Pedro Oliveira, 5511977777777`;
                 </section>
 
                 <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 space-y-4">
-                  <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400">Escrever Mensagem</h3>
+                  <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-500">Escrever Mensagem</h3>
                   <textarea
                     className="w-full min-h-[220px] rounded-xl border-slate-200 bg-slate-50 text-sm leading-relaxed focus:border-emerald-500 focus:ring-emerald-500"
                     placeholder="Digite sua mensagem aqui... use {{name}} para personalizar."
@@ -1782,7 +1984,7 @@ Pedro Oliveira, 5511977777777`;
                 </section>
 
                 <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
-                  <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-400 mb-4">Agendamento de Envio</h3>
+                  <h3 className="text-xs tracking-[0.16em] uppercase font-bold text-slate-500 mb-4">Agendamento de Envio</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
                       <label className="text-sm font-medium text-slate-700 block mb-2">Data e hora</label>
@@ -1805,7 +2007,7 @@ Pedro Oliveira, 5511977777777`;
                   onClick={scheduleMessage}
                 >
                   <Clock className="w-4 h-4" />
-                  Enviar Campanha
+                  {editingScheduledMessage ? 'Atualizar Agendamento' : 'Agendar Mensagem'}
                 </button>
               </div>
 
@@ -1820,7 +2022,7 @@ Pedro Oliveira, 5511977777777`;
                   </div>
                 </div>
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-                  <p className="text-xs font-bold tracking-[0.14em] uppercase text-slate-400 mb-4 text-center">Pré-visualização ao Vivo</p>
+                  <p className="text-xs font-bold tracking-[0.14em] uppercase text-slate-500 mb-4 text-center">Pré-visualização ao Vivo</p>
                   <div className="max-w-[280px] mx-auto rounded-[2rem] border-[7px] border-slate-800 bg-slate-100 overflow-hidden">
                     <div className="bg-[#075e54] text-white p-3 text-xs font-semibold">{scheduledName || 'Contato'}</div>
                     <div className="p-3 min-h-[260px] bg-[#e5ddd5]">
@@ -1828,7 +2030,7 @@ Pedro Oliveira, 5511977777777`;
                         {scheduledMessage || 'Sua mensagem vai aparecer aqui.'}
                       </div>
                     </div>
-                    <div className="h-12 bg-white px-3 flex items-center justify-between text-slate-400">
+                    <div className="h-12 bg-white px-3 flex items-center justify-between text-slate-500">
                       <Smartphone className="w-4 h-4" />
                       <div className="h-2 w-32 rounded-full bg-slate-200" />
                     </div>
@@ -1838,7 +2040,7 @@ Pedro Oliveira, 5511977777777`;
             </div>
             
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
-              <h3 className="font-semibold text-slate-800 mb-4 text-lg">Mensagens Agendadas ({scheduledMessages.length})</h3>
+              <h3 className="font-semibold text-slate-800 mb-4 text-lg">Mensagens Agendadas ({scheduledTotalItems})</h3>
               <div className="overflow-x-auto -mx-4 sm:mx-0">
                 <table className="w-full">
                   <thead>
@@ -1896,6 +2098,7 @@ Pedro Oliveira, 5511977777777`;
                                 onClick={() => editScheduledMessage(msg)}
                                 className="p-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg transition shadow-sm"
                                 title="Editar"
+                                aria-label="Editar agendamento"
                               >
                                 <Edit2 className="w-4 h-4" />
                               </button>
@@ -1903,6 +2106,7 @@ Pedro Oliveira, 5511977777777`;
                                 onClick={() => deleteScheduledMessage(msg.id)}
                                 className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition shadow-sm"
                                 title="Excluir"
+                                aria-label="Excluir agendamento"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -1914,21 +2118,40 @@ Pedro Oliveira, 5511977777777`;
                   </tbody>
                 </table>
               </div>
+              <div className="flex justify-between items-center mt-6">
+                <button
+                  className="p-2 px-4 bg-slate-200 hover:bg-slate-300 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition font-medium text-sm"
+                  onClick={() => setScheduledCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={scheduledCurrentPage === 1}
+                >
+                  ← Anterior
+                </button>
+                <span className="text-sm text-slate-600 font-medium">
+                  Página {scheduledCurrentPage} de {scheduledTotalPages}
+                </span>
+                <button
+                  className="p-2 px-4 bg-slate-200 hover:bg-slate-300 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition font-medium text-sm"
+                  onClick={() => setScheduledCurrentPage(prev => Math.min(prev + 1, scheduledTotalPages))}
+                  disabled={scheduledCurrentPage === scheduledTotalPages}
+                >
+                  Próximo →
+                </button>
+              </div>
             </div>
           </div>
         );
 
       case 'history':
         return (
-          <div className="bg-white rounded-xl shadow-lg p-8">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
             <div className="flex justify-between items-center mb-6">
               <div className="flex items-center gap-3">
-                <History className="w-6 h-6 text-orange-600" />
-                <h2 className="text-2xl font-bold text-gray-800">Histórico de Mensagens</h2>
+                <History className="w-6 h-6 text-slate-700" />
+                <h2 className="text-2xl font-bold text-slate-900">Histórico de Mensagens</h2>
               </div>
               {hasPermission('clear-history') && (
                 <button 
-                  className="p-2 px-4 bg-red-500 hover:bg-red-600 text-white text-sm rounded-lg transition flex items-center gap-2 shadow-md" 
+                  className="p-2 px-4 bg-red-500 hover:bg-red-600 text-white text-sm rounded-xl transition flex items-center gap-2" 
                   onClick={clearHistory}
                 >
                   <Trash2 className="w-4 h-4" />
@@ -1938,11 +2161,11 @@ Pedro Oliveira, 5511977777777`;
             </div>
             
             <div className="relative mb-6">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-500" />
               <input
                 type="text"
                 placeholder="Pesquisar por nome, número ou mensagem..."
-                className="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent transition"
+                className="w-full pl-10 p-3 border border-slate-200 bg-slate-50 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
                 value={searchTerm}
                 onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
               />
@@ -1951,23 +2174,27 @@ Pedro Oliveira, 5511977777777`;
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b-2 border-gray-200 bg-gray-50">
-                    <th className="p-3 text-left text-sm font-semibold text-gray-700">Nome</th>
-                    <th className="p-3 text-left text-sm font-semibold text-gray-700">Número</th>
-                    <th className="p-3 text-left text-sm font-semibold text-gray-700">Mensagem</th>
-                    <th className="p-3 text-left text-sm font-semibold text-gray-700">Horário</th>
-                    <th className="p-3 text-left text-sm font-semibold text-gray-700">Status</th>
+                  <tr className="border-b border-slate-200 bg-slate-50">
+                    <th className="p-3 text-left text-sm font-semibold text-slate-700">Nome</th>
+                    <th className="p-3 text-left text-sm font-semibold text-slate-700">Número</th>
+                    <th className="p-3 text-left text-sm font-semibold text-slate-700">Mensagem</th>
+                    <th className="p-3 text-left text-sm font-semibold text-slate-700">Horário</th>
+                    <th className="p-3 text-left text-sm font-semibold text-slate-700">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {messages
-                    .filter(msg => messageMatchesSearch(msg, searchTerm))
-                    .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-                    .map(msg => (
-                      <tr key={msg.id} className="border-b border-gray-100 hover:bg-gray-50 transition">
-                        <td className="p-3 text-sm text-gray-700">{msg.name || '-'}</td>
-                        <td className="p-3 text-sm text-gray-700 font-mono">{msg.number}</td>
-                        <td className="p-3 text-sm text-gray-600 max-w-xs">
+                  {messages.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-4 text-center text-sm text-slate-500">
+                        Nenhum registro encontrado.
+                      </td>
+                    </tr>
+                  ) : (
+                    messages.map(msg => (
+                      <tr key={msg.id} className="border-b border-slate-100 hover:bg-slate-50 transition">
+                        <td className="p-3 text-sm text-slate-700">{msg.name || '-'}</td>
+                        <td className="p-3 text-sm text-slate-700 font-mono">{msg.number}</td>
+                        <td className="p-3 text-sm text-slate-600 max-w-xs">
                           <p className="truncate">{msg.message || '-'}</p>
                           {msg.media_type && (
                             <div className="mt-1 flex items-center gap-2 min-w-0">
@@ -1982,7 +2209,7 @@ Pedro Oliveira, 5511977777777`;
                             </div>
                           )}
                         </td>
-                        <td className="p-3 text-sm text-gray-500">
+                        <td className="p-3 text-sm text-slate-500">
                           {new Date(msg.created_at.includes('Z') || msg.created_at.includes('+') ? msg.created_at : msg.created_at + 'Z').toLocaleString('pt-BR', {
                             timeZone: timezone,
                             day: '2-digit',
@@ -2001,32 +2228,27 @@ Pedro Oliveira, 5511977777777`;
                           </span>
                         </td>
                       </tr>
-                    ))}
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
 
             <div className="flex justify-between items-center mt-6">
               <button
-                className="p-2 px-4 bg-gray-200 hover:bg-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition font-medium text-sm"
+                className="p-2 px-4 bg-slate-200 hover:bg-slate-300 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition font-medium text-sm"
                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                 disabled={currentPage === 1}
               >
                 ← Anterior
               </button>
-              <span className="text-sm text-gray-600 font-medium">
-                Página {currentPage} de {Math.max(1, Math.ceil(messages.filter(msg =>
-                  messageMatchesSearch(msg, searchTerm)
-                ).length / itemsPerPage))}
+              <span className="text-sm text-slate-600 font-medium">
+                Página {currentPage} de {historyTotalPages} · {historyTotalItems} registros
               </span>
               <button
-                className="p-2 px-4 bg-gray-200 hover:bg-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition font-medium text-sm"
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.max(1, Math.ceil(messages.filter(msg =>
-                  messageMatchesSearch(msg, searchTerm)
-                ).length / itemsPerPage))))}
-                disabled={currentPage === Math.max(1, Math.ceil(messages.filter(msg =>
-                  messageMatchesSearch(msg, searchTerm)
-                ).length / itemsPerPage))}
+                className="p-2 px-4 bg-slate-200 hover:bg-slate-300 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition font-medium text-sm"
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, historyTotalPages))}
+                disabled={currentPage === historyTotalPages}
               >
                 Próximo →
               </button>
@@ -2036,10 +2258,10 @@ Pedro Oliveira, 5511977777777`;
 
       case 'settings':
         return (
-          <div className="bg-white rounded-xl shadow-lg p-8">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
             <div className="flex items-center gap-3 mb-6">
-              <Settings className="w-6 h-6 text-gray-600" />
-              <h2 className="text-2xl font-bold text-gray-800">Configurações</h2>
+              <Settings className="w-6 h-6 text-slate-700" />
+              <h2 className="text-2xl font-bold text-slate-900">Configurações</h2>
             </div>
 
             {/* Tabs */}
@@ -2049,8 +2271,8 @@ Pedro Oliveira, 5511977777777`;
                   onClick={() => setSettingsTab('general')}
                   className={`px-4 py-2 font-medium transition ${
                     settingsTab === 'general'
-                      ? 'text-green-600 border-b-2 border-green-600'
-                      : 'text-gray-600 hover:text-gray-800'
+                      ? 'text-emerald-600 border-b-2 border-emerald-600'
+                      : 'text-slate-600 hover:text-slate-800'
                   }`}
                 >
                   Geral
@@ -2061,8 +2283,8 @@ Pedro Oliveira, 5511977777777`;
                   onClick={() => setSettingsTab('users')}
                   className={`px-4 py-2 font-medium transition flex items-center gap-2 ${
                     settingsTab === 'users'
-                      ? 'text-green-600 border-b-2 border-green-600'
-                      : 'text-gray-600 hover:text-gray-800'
+                      ? 'text-emerald-600 border-b-2 border-emerald-600'
+                      : 'text-slate-600 hover:text-slate-800'
                   }`}
                 >
                   <UserPlus className="w-4 h-4" />
@@ -2074,8 +2296,8 @@ Pedro Oliveira, 5511977777777`;
                   onClick={() => setSettingsTab('roles')}
                   className={`px-4 py-2 font-medium transition flex items-center gap-2 ${
                     settingsTab === 'roles'
-                      ? 'text-green-600 border-b-2 border-green-600'
-                      : 'text-gray-600 hover:text-gray-800'
+                      ? 'text-emerald-600 border-b-2 border-emerald-600'
+                      : 'text-slate-600 hover:text-slate-800'
                   }`}
                 >
                   <Shield className="w-4 h-4" />
@@ -2094,25 +2316,25 @@ Pedro Oliveira, 5511977777777`;
             {settingsTab === 'general' && canAccessSettingsTab('general') && (
               <div className="space-y-4 max-w-2xl">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     Nome da Instância Evolution API
                   </label>
                   <input 
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-transparent transition" 
+                    className="w-full p-3 border border-slate-200 bg-slate-50 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition" 
                     value={instanceName} 
                     onChange={e => setInstanceName(e.target.value)} 
                     placeholder="Ex: minha-instancia"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-slate-500 mt-1">
                     Nome da instância configurada no Evolution API
                   </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
                     Fuso Horário do Sistema
                   </label>
                   <select 
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-transparent transition" 
+                    className="w-full p-3 border border-slate-200 bg-slate-50 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition" 
                     value={timezone} 
                     onChange={e => setTimezone(e.target.value)}
                   >
@@ -2132,24 +2354,24 @@ Pedro Oliveira, 5511977777777`;
                     <option value="America/Santarem">Santarém (GMT-3)</option>
                     <option value="America/Noronha">Fernando de Noronha (GMT-2)</option>
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-slate-500 mt-1">
                     Fuso horário usado para exibir datas e horários no sistema
                   </p>
                 </div>
                 <button 
-                  className="w-full p-4 bg-gray-700 hover:bg-gray-800 text-white rounded-lg font-medium transition shadow-md hover:shadow-lg text-lg" 
+                  className="w-full p-4 bg-emerald-500 hover:bg-emerald-600 text-slate-900 rounded-xl font-bold transition text-lg" 
                   onClick={updateSettings}
                 >
                   Salvar Configurações
                 </button>
-                <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <h3 className="font-semibold text-gray-800 mb-2">Informações do Sistema</h3>
-                  <div className="space-y-2 text-sm text-gray-600">
+                <div className="mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                  <h3 className="font-semibold text-slate-800 mb-2">Informações do Sistema</h3>
+                  <div className="space-y-2 text-sm text-slate-600">
                     <p><strong>Versão:</strong> 1.0.0</p>
                     <p><strong>Instância Ativa:</strong> {instanceName || 'Não configurada'}</p>
                     <p><strong>Fuso Horário:</strong> {timezone}</p>
-                    <p><strong>Total de Mensagens:</strong> {messages.length}</p>
-                    <p><strong>Mensagens Agendadas:</strong> {scheduledMessages.length}</p>
+                    <p><strong>Total de Mensagens:</strong> {historyTotalItems}</p>
+                    <p><strong>Mensagens Agendadas:</strong> {scheduledTotalItems}</p>
                     <p><strong>Usuários Cadastrados:</strong> {users.length}</p>
                     <p><strong>Grupos de Permissões:</strong> {roles.length}</p>
                   </div>
@@ -2221,15 +2443,23 @@ Pedro Oliveira, 5511977777777`;
                 {/* Edit User Modal */}
                 {editingUser && (
                   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                    <div
+                      ref={editUserModalRef}
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="edit-user-title"
+                      tabIndex={-1}
+                      className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+                    >
                       <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-                        <h3 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
+                        <h3 id="edit-user-title" className="text-xl font-semibold text-gray-800 flex items-center gap-2">
                           <Edit2 className="w-5 h-5 text-blue-600" />
                           Editar Usuário
                         </h3>
                         <button 
                           onClick={() => setEditingUser(null)}
                           className="text-gray-400 hover:text-gray-600 transition"
+                          aria-label="Fechar modal de edição de usuário"
                         >
                           <X className="w-6 h-6" />
                         </button>
@@ -2336,6 +2566,7 @@ Pedro Oliveira, 5511977777777`;
                                   onClick={() => setEditingUser({ ...user, password: '' })}
                                   className="text-blue-600 hover:text-blue-800 transition"
                                   title="Editar usuário"
+                                  aria-label="Editar usuário"
                                 >
                                   <Edit2 className="w-4 h-4" />
                                 </button>
@@ -2343,6 +2574,7 @@ Pedro Oliveira, 5511977777777`;
                                   onClick={() => deleteUser(user.id)}
                                   className="text-red-600 hover:text-red-800 transition"
                                   title="Excluir usuário"
+                                  aria-label="Excluir usuário"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -2423,15 +2655,23 @@ Pedro Oliveira, 5511977777777`;
                 {/* Edit Role Modal */}
                 {editingRole && (
                   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                    <div
+                      ref={editRoleModalRef}
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="edit-role-title"
+                      tabIndex={-1}
+                      className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+                    >
                       <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-                        <h3 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
+                        <h3 id="edit-role-title" className="text-xl font-semibold text-gray-800 flex items-center gap-2">
                           <Edit2 className="w-5 h-5 text-blue-600" />
                           Editar Grupo de Permissões
                         </h3>
                         <button 
                           onClick={() => setEditingRole(null)}
                           className="text-gray-400 hover:text-gray-600 transition"
+                          aria-label="Fechar modal de edição de grupo"
                         >
                           <X className="w-6 h-6" />
                         </button>
@@ -2546,6 +2786,7 @@ Pedro Oliveira, 5511977777777`;
                                   onClick={() => setEditingRole(role)}
                                   className="text-blue-600 hover:text-blue-800 transition"
                                   title="Editar grupo"
+                                  aria-label="Editar grupo"
                                 >
                                   <Edit2 className="w-4 h-4" />
                                 </button>
@@ -2553,6 +2794,7 @@ Pedro Oliveira, 5511977777777`;
                                   onClick={() => deleteRole(role.id)}
                                   className="text-red-600 hover:text-red-800 transition"
                                   title="Excluir grupo"
+                                  aria-label="Excluir grupo"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -2579,7 +2821,12 @@ Pedro Oliveira, 5511977777777`;
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
         {notification && (
-          <div className={`fixed top-4 right-4 p-4 rounded-xl shadow-lg flex items-center gap-3 z-50 ${notification.type === 'success' ? 'bg-emerald-500 text-slate-900' : 'bg-red-500 text-white'}`}>
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className={`fixed top-4 right-4 p-4 rounded-xl shadow-lg flex items-center gap-3 z-50 ${notification.type === 'success' ? 'bg-emerald-500 text-slate-900' : 'bg-red-500 text-white'}`}
+          >
             {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
             <span className="font-medium">{notification.message}</span>
           </div>
@@ -2596,8 +2843,9 @@ Pedro Oliveira, 5511977777777`;
 
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
+              <label htmlFor="login-email" className="block text-sm font-medium text-slate-700 mb-2">Email</label>
               <input
+                id="login-email"
                 type="email"
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
@@ -2609,8 +2857,9 @@ Pedro Oliveira, 5511977777777`;
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Senha</label>
+              <label htmlFor="login-password" className="block text-sm font-medium text-slate-700 mb-2">Senha</label>
               <input
+                id="login-password"
                 type="password"
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
@@ -2651,7 +2900,12 @@ Pedro Oliveira, 5511977777777`;
   return (
     <div className="min-h-screen bg-slate-100 flex">
       {notification && (
-        <div className={`fixed top-4 right-4 p-4 rounded-xl shadow-lg flex items-center gap-3 z-50 ${notification.type === 'success' ? 'bg-emerald-500 text-slate-900' : 'bg-red-500 text-white'}`}>
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className={`fixed top-4 right-4 p-4 rounded-xl shadow-lg flex items-center gap-3 z-50 ${notification.type === 'success' ? 'bg-emerald-500 text-slate-900' : 'bg-red-500 text-white'}`}
+        >
           {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
           <span className="font-medium">{notification.message}</span>
         </div>
@@ -2696,7 +2950,7 @@ Pedro Oliveira, 5511977777777`;
                       <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-emerald-600' : item.color}`} />
                       <div className="text-left min-w-0">
                         <p className={`text-sm font-semibold truncate ${isActive ? 'text-emerald-700' : 'text-slate-700'}`}>{item.label}</p>
-                        <p className="text-[11px] text-slate-400 truncate">{item.description}</p>
+                        <p className="text-[11px] text-slate-500 truncate">{item.description}</p>
                       </div>
                     </div>
                     <ChevronRight className={`w-4 h-4 ${isActive ? 'text-emerald-500' : 'text-slate-300'}`} />
@@ -2729,7 +2983,7 @@ Pedro Oliveira, 5511977777777`;
                 </div>
                 <p className="font-black text-slate-900">UATIZAPI</p>
               </div>
-              <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 rounded-lg hover:bg-slate-100">
+              <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 rounded-lg hover:bg-slate-100" aria-label="Fechar menu">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -2757,23 +3011,23 @@ Pedro Oliveira, 5511977777777`;
       <div className="flex-1 min-w-0 flex flex-col">
         <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30">
           <div className="flex items-center gap-3 min-w-0">
-            <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 rounded-lg hover:bg-slate-100">
+            <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 rounded-lg hover:bg-slate-100" aria-label="Abrir menu">
               <Menu className="w-5 h-5 text-slate-700" />
             </button>
             <div className="min-w-0">
-              <p className="text-xs text-slate-400 font-semibold uppercase tracking-[0.12em]">Painel</p>
+              <p className="text-xs text-slate-500 font-semibold uppercase tracking-[0.12em]">Painel</p>
               <h2 className="text-base sm:text-lg font-bold text-slate-900 truncate">{menuItems.find(item => item.id === activePage)?.label || 'Painel'}</h2>
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
-            <button className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500">
+            <button className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500" aria-label="Notificações">
               <Bell className="w-4 h-4" />
             </button>
             <button
               onClick={() => setActivePage('bulk-send')}
               className="h-10 px-3 sm:px-4 rounded-xl bg-emerald-500 text-slate-900 font-bold text-sm"
             >
-              Enviar Campanha
+              Nova Campanha
             </button>
           </div>
         </header>

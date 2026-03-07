@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import axios from "axios";
 import cron from "node-cron";
 import Database from "better-sqlite3";
+import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
@@ -11,7 +12,21 @@ import { existsSync } from "fs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const db = new Database("messages.db");
+// Configuração robusta do banco para evitar corrupção
+const db = new Database("messages.db", { 
+  readonly: false,
+  fileMustExist: false,
+  timeout: 10000
+});
+
+// Usar DELETE mode ao invés de WAL (mais estável em alguns ambientes)
+db.pragma('journal_mode = DELETE');
+db.pragma('synchronous = FULL');
+db.pragma('cache_size = 10000');
+db.pragma('temp_store = MEMORY');
+
+// Modo teste: simula envio sem chamar Evolution API (útil para desenvolvimento)
+const TEST_MODE = process.env.TEST_MODE === 'true';
 
 const addColumnIfNotExists = (tableName: string, columnName: string, definition: string) => {
   const existingColumns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
@@ -112,6 +127,13 @@ db.prepare("UPDATE scheduled_messages SET status = 'Agendado' WHERE status IS NU
 const app = express();
 app.use(express.json({ limit: '30mb' }));
 
+const multipartUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 30 * 1024 * 1024,
+  },
+});
+
 // Log de todas as requisições
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`);
@@ -127,6 +149,19 @@ app.get("/api/test", (req, res) => {
 // Servir página de redefinição de senha
 app.get("/reset-password", (req, res) => {
   res.sendFile(path.join(__dirname, "reset-password.html"));
+});
+
+// Endpoint de status (mostra se está em TEST_MODE, variáveis de ambiente, etc)
+app.get("/api/status", (req, res) => {
+  res.json({
+    testMode: TEST_MODE,
+    evolutionApiConfigured: !!(EVOLUTION_API_URL && EVOLUTION_API_KEY && EVOLUTION_INSTANCE),
+    environment: {
+      evolutionApiUrl: EVOLUTION_API_URL ? '✓ configurado' : '✗ não configurado',
+      evolutionApiKey: EVOLUTION_API_KEY ? '✓ configurado' : '✗ não configurado',
+      evolutionInstance: EVOLUTION_INSTANCE ? '✓ configurado' : '✗ não configurado',
+    },
+  });
 });
 
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
@@ -229,6 +264,111 @@ const normalizeMediaPayload = (media: any): MediaPayload | null => {
     fileName: typeof media.fileName === 'string' ? media.fileName.trim() || undefined : undefined,
     mimeType: normalizedMimeType || undefined,
   };
+};
+
+const isMultipartFormRequest = (req: express.Request) => {
+  const contentType = req.headers['content-type'];
+  return typeof contentType === 'string' && contentType.includes('multipart/form-data');
+};
+
+const maybeParseMultipartMedia: express.RequestHandler = (req, res, next) => {
+  if (!isMultipartFormRequest(req)) {
+    next();
+    return;
+  }
+
+  multipartUpload.single('media')(req, res, (error: any) => {
+    if (error) {
+      console.error('Erro ao processar multipart:', error?.message || error);
+      return res.status(400).json({ error: 'Falha ao processar arquivo enviado.' });
+    }
+
+    next();
+  });
+};
+
+const inferMediaTypeFromMime = (mimeType?: string): MediaType => {
+  if (mimeType?.startsWith('image/')) return 'image';
+  if (mimeType?.startsWith('video/')) return 'video';
+  return 'document';
+};
+
+const normalizeUploadedMedia = (file?: Express.Multer.File, hintedType?: unknown): MediaPayload | null => {
+  if (!file) return null;
+
+  const normalizedHint =
+    typeof hintedType === 'string'
+      ? hintedType.trim().toLowerCase()
+      : '';
+
+  const type =
+    normalizedHint === 'image' || normalizedHint === 'document' || normalizedHint === 'video'
+      ? (normalizedHint as MediaType)
+      : inferMediaTypeFromMime(file.mimetype);
+
+  return {
+    type,
+    data: file.buffer.toString('base64'),
+    fileName: file.originalname,
+    mimeType: file.mimetype,
+  };
+};
+
+const parseMediaField = (rawMedia: unknown) => {
+  if (typeof rawMedia !== 'string') return rawMedia;
+
+  const trimmed = rawMedia.trim();
+  if (!trimmed) return null;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+};
+
+const resolveMediaPayloadFromRequest = (req: express.Request, rawMedia: unknown): MediaPayload | null => {
+  const uploadedMedia = normalizeUploadedMedia(
+    (req as express.Request & { file?: Express.Multer.File }).file,
+    req.body?.mediaType,
+  );
+
+  if (uploadedMedia) {
+    return uploadedMedia;
+  }
+
+  return normalizeMediaPayload(parseMediaField(rawMedia));
+};
+
+const parseBulkNumbers = (numbersField: unknown): string[] => {
+  if (Array.isArray(numbersField)) {
+    return numbersField
+      .filter((entry) => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof numbersField === 'string') {
+    const trimmed = numbersField.trim();
+    if (!trimmed) return [];
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((entry) => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+      }
+    } catch {
+      return trimmed
+        .split('\n')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+  }
+
+  return [];
 };
 
 const sendMediaMessage = async (
@@ -368,7 +508,9 @@ const sendMediaMessage = async (
 };
 
 async function sendWhatsAppMessage(number: string, message: string, name?: string, media?: MediaPayload | null) {
-  const instanceName = db.prepare("SELECT value FROM settings WHERE key = 'instance_name'").get().value;
+  const instanceSetting = db.prepare("SELECT value FROM settings WHERE key = 'instance_name'").get() as { value?: string } | undefined;
+  const instanceName = instanceSetting?.value || process.env.EVOLUTION_INSTANCE || 'default';
+  
   console.log(`Enviando mensagem para ${number}: "${message}"`);
   const actualNumber = (number.includes(';') ? number.split(';')[1] : number).replace(/[^0-9]/g, '');
   const actualName = name || (number.includes(';') ? number.split(';')[0] : undefined);
@@ -383,40 +525,58 @@ async function sendWhatsAppMessage(number: string, message: string, name?: strin
         number: actualNumber,
         text: message,
       };
+  const now = new Date().toISOString();
+  let messageStatus = 'failed';
+  let messageId = `${Date.now()}-${actualNumber}`;
+
+  // Modo teste: simula envio bem-sucedido sem chamar Evolution API
+  if (TEST_MODE) {
+    messageId = `test-${Date.now()}-${actualNumber}`;
+    messageStatus = 'sent';
+    console.log(`[TEST_MODE] Mensagem simulada para ${actualNumber}, ID: ${messageId}`);
+  } else {
+    try {
+      console.log(`Enviando payload para ${instanceName}:`, payload);
+      const response = media
+        ? await sendMediaMessage(instanceName, actualNumber, message, media)
+        : await axios.post(
+            `${EVOLUTION_API_URL}/message/sendText/${instanceName}`,
+            { number: actualNumber, text: message },
+            {
+              headers: {
+                apikey: EVOLUTION_API_KEY,
+                "Content-Type": "application/json",
+              },
+            }
+          );
+      messageId = response.data?.key?.id || response.data?.key?.remoteJid || messageId;
+      messageStatus = 'sent';
+      console.log(`Mensagem enviada para ${actualNumber}, ID: ${messageId}`);
+    } catch (error: any) {
+      console.error(`Falha ao enviar mensagem para ${actualNumber}. Payload:`, JSON.stringify(payload));
+      console.error(`Resposta de erro:`, JSON.stringify(error.response?.data || error.message));
+    }
+  }
+
   try {
-    console.log(`Enviando payload para ${instanceName}:`, payload);
-    const response = media
-      ? await sendMediaMessage(instanceName, actualNumber, message, media)
-      : await axios.post(
-          `${EVOLUTION_API_URL}/message/sendText/${instanceName}`,
-          { number: actualNumber, text: message },
-          {
-            headers: {
-              apikey: EVOLUTION_API_KEY,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-    const messageId = response.data?.key?.id || response.data?.key?.remoteJid || `${Date.now()}-${actualNumber}`;
-    const now = new Date().toISOString();
     db.prepare("INSERT INTO messages (id, number, name, message, status, created_at, media_type, media_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(
         messageId,
         actualNumber,
         actualName || null,
         message,
-        'sent',
+        messageStatus,
         now,
         media?.type || null,
         media?.fileName || null,
       );
-    console.log(`Mensagem enviada para ${actualNumber}, ID: ${messageId}`);
+    console.log(`✓ Mensagem salva no banco. ID: ${messageId}, Número: ${actualNumber}, Status: ${messageStatus}`);
   } catch (error: any) {
-    console.error(`Falha ao enviar mensagem para ${actualNumber}. Payload:`, JSON.stringify(payload));
-    console.error(`Resposta de erro:`, JSON.stringify(error.response?.data || error.message));
-    return false;
+    console.error(`✗ Erro ao salvar mensagem no banco:`, error.message);
+    console.error(`  Detalhes - ID: ${messageId}, Número: ${actualNumber}, Status: ${messageStatus}`);
   }
-  return true;
+
+  return messageStatus === 'sent';
 }
 
 app.post("/api/webhook", (req, res) => {
@@ -428,8 +588,53 @@ app.post("/api/webhook", (req, res) => {
 });
 
 app.get("/api/messages", (req, res) => {
-  const messages = db.prepare("SELECT * FROM messages ORDER BY created_at DESC").all();
-  res.json(messages);
+  const pageParam = req.query.page;
+  const limitParam = req.query.limit;
+  const searchParam = req.query.search;
+
+  const hasPaginationRequest =
+    pageParam !== undefined ||
+    limitParam !== undefined ||
+    searchParam !== undefined;
+
+  if (!hasPaginationRequest) {
+    const messages = db.prepare("SELECT * FROM messages ORDER BY created_at DESC").all();
+    return res.json(messages);
+  }
+
+  const requestedPage = Math.max(1, Number(pageParam) || 1);
+  const limit = Math.min(100, Math.max(1, Number(limitParam) || 20));
+  const search = String(searchParam || '').trim();
+  const likeSearch = `%${search}%`;
+
+  const whereClause = search
+    ? `WHERE COALESCE(name, '') LIKE ? OR COALESCE(number, '') LIKE ? OR COALESCE(message, '') LIKE ? OR COALESCE(media_name, '') LIKE ? OR COALESCE(status, '') LIKE ?`
+    : '';
+
+  const countQuery = `SELECT COUNT(*) as total FROM messages ${whereClause}`;
+
+  const countResult = search
+    ? db.prepare(countQuery).get(likeSearch, likeSearch, likeSearch, likeSearch, likeSearch) as { total: number }
+    : db.prepare(countQuery).get() as { total: number };
+
+  const totalItems = Number(countResult?.total || 0);
+  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
+  const page = Math.min(requestedPage, totalPages);
+  const offset = (page - 1) * limit;
+
+  const listQuery = `SELECT * FROM messages ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+
+  const items = search
+    ? db.prepare(listQuery).all(likeSearch, likeSearch, likeSearch, likeSearch, likeSearch, limit, offset)
+    : db.prepare(listQuery).all(limit, offset);
+
+  return res.json({
+    items,
+    page,
+    limit,
+    totalItems,
+    totalPages,
+  });
 });
 
 app.post("/api/messages/clear", (req, res) => {
@@ -512,11 +717,13 @@ app.delete('/api/contacts/:id', (req, res) => {
   }
 });
 
-app.post("/api/send-now", async (req, res) => {
-  const { name, number, message, media } = req.body;
-  const normalizedMedia = normalizeMediaPayload(media);
+app.post("/api/send-now", maybeParseMultipartMedia, async (req, res) => {
+  const name = typeof req.body?.name === 'string' ? req.body.name : String(req.body?.name || '');
+  const number = typeof req.body?.number === 'string' ? req.body.number : String(req.body?.number || '');
+  const message = typeof req.body?.message === 'string' ? req.body.message : String(req.body?.message || '');
+  const normalizedMedia = resolveMediaPayloadFromRequest(req, req.body?.media);
 
-  if ((!message || String(message).trim() === '') && !normalizedMedia) {
+  if ((!message || message.trim() === '') && !normalizedMedia) {
     return res.status(400).json({ error: 'Mensagem ou mídia é obrigatória.' });
   }
 
@@ -528,17 +735,17 @@ app.post("/api/send-now", async (req, res) => {
   res.json({ status: "sent" });
 });
 
-app.post("/api/send-bulk", async (req, res) => {
-  const { numbers, message, delay, media } = req.body;
-  const parsedNumbers = Array.isArray(numbers) ? numbers.filter((number) => typeof number === 'string' && number.trim() !== '') : [];
-  const parsedDelay = Math.max(1, Number(delay) || 1);
-  const normalizedMedia = normalizeMediaPayload(media);
+app.post("/api/send-bulk", maybeParseMultipartMedia, async (req, res) => {
+  const message = typeof req.body?.message === 'string' ? req.body.message : String(req.body?.message || '');
+  const parsedNumbers = parseBulkNumbers(req.body?.numbers);
+  const parsedDelay = Math.max(1, Number(req.body?.delay) || 1);
+  const normalizedMedia = resolveMediaPayloadFromRequest(req, req.body?.media);
 
   if (bulkCampaignStatus.isRunning) {
     return res.status(409).json({ error: 'Já existe uma campanha em andamento.' });
   }
 
-  if ((!message || typeof message !== 'string' || message.trim() === '') && !normalizedMedia) {
+  if ((!message || message.trim() === '') && !normalizedMedia) {
     return res.status(400).json({ error: 'Mensagem ou mídia da campanha é obrigatória.' });
   }
 
@@ -637,28 +844,82 @@ app.post("/api/settings", (req, res) => {
   res.json({ status: "updated" });
 });
 
-app.post("/api/schedule", (req, res) => {
-  const { name, number, message, scheduledAt, media } = req.body;
-  const normalizedMedia = normalizeMediaPayload(media);
+app.post("/api/schedule", maybeParseMultipartMedia, (req, res) => {
+  const name = typeof req.body?.name === 'string' ? req.body.name : String(req.body?.name || '');
+  const number = typeof req.body?.number === 'string' ? req.body.number : String(req.body?.number || '');
+  const message = typeof req.body?.message === 'string' ? req.body.message : String(req.body?.message || '');
+  const scheduledAt = typeof req.body?.scheduledAt === 'string' ? req.body.scheduledAt : String(req.body?.scheduledAt || '');
+  const normalizedMedia = resolveMediaPayloadFromRequest(req, req.body?.media);
+
   console.log(`Agendando mensagem. Nome: ${name}, Número: ${number}, Mensagem: ${message}, AgendadoPara: ${scheduledAt}`);
+
   if ((!message || message.trim() === "") && !normalizedMedia) {
     console.error("Tentativa de agendar mensagem sem texto e sem mídia");
     return res.status(400).json({ error: "Mensagem ou mídia é obrigatória" });
   }
+
   const stmt = db.prepare("INSERT INTO scheduled_messages (name, number, message, media_type, media_data, media_name, media_mime_type, scheduled_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Agendado')");
   stmt.run(name, number, message || '', normalizedMedia?.type || null, normalizedMedia?.data || null, normalizedMedia?.fileName || null, normalizedMedia?.mimeType || null, scheduledAt);
   res.json({ status: "scheduled" });
 });
 
 app.get("/api/scheduled-messages", (req, res) => {
-  const messages = db.prepare("SELECT * FROM scheduled_messages").all();
-  res.json(messages);
+  const pageParam = req.query.page;
+  const limitParam = req.query.limit;
+  const searchParam = req.query.search;
+
+  const hasPaginationRequest =
+    pageParam !== undefined ||
+    limitParam !== undefined ||
+    searchParam !== undefined;
+
+  if (!hasPaginationRequest) {
+    const messages = db.prepare("SELECT * FROM scheduled_messages ORDER BY datetime(scheduled_at) ASC, id ASC").all();
+    return res.json(messages);
+  }
+
+  const requestedPage = Math.max(1, Number(pageParam) || 1);
+  const limit = Math.min(100, Math.max(1, Number(limitParam) || 20));
+  const search = String(searchParam || '').trim();
+  const likeSearch = `%${search}%`;
+
+  const whereClause = search
+    ? `WHERE COALESCE(name, '') LIKE ? OR COALESCE(number, '') LIKE ? OR COALESCE(message, '') LIKE ? OR COALESCE(media_name, '') LIKE ? OR COALESCE(status, '') LIKE ?`
+    : '';
+
+  const countQuery = `SELECT COUNT(*) as total FROM scheduled_messages ${whereClause}`;
+
+  const countResult = search
+    ? db.prepare(countQuery).get(likeSearch, likeSearch, likeSearch, likeSearch, likeSearch) as { total: number }
+    : db.prepare(countQuery).get() as { total: number };
+
+  const totalItems = Number(countResult?.total || 0);
+  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
+  const page = Math.min(requestedPage, totalPages);
+  const offset = (page - 1) * limit;
+
+  const listQuery = `SELECT * FROM scheduled_messages ${whereClause} ORDER BY datetime(scheduled_at) ASC, id ASC LIMIT ? OFFSET ?`;
+
+  const items = search
+    ? db.prepare(listQuery).all(likeSearch, likeSearch, likeSearch, likeSearch, likeSearch, limit, offset)
+    : db.prepare(listQuery).all(limit, offset);
+
+  return res.json({
+    items,
+    page,
+    limit,
+    totalItems,
+    totalPages,
+  });
 });
 
-app.put("/api/scheduled-messages/:id", (req, res) => {
+app.put("/api/scheduled-messages/:id", maybeParseMultipartMedia, (req, res) => {
   const { id } = req.params;
-  const { name, number, message, scheduledAt, media } = req.body;
-  const normalizedMedia = normalizeMediaPayload(media);
+  const name = typeof req.body?.name === 'string' ? req.body.name : String(req.body?.name || '');
+  const number = typeof req.body?.number === 'string' ? req.body.number : String(req.body?.number || '');
+  const message = typeof req.body?.message === 'string' ? req.body.message : String(req.body?.message || '');
+  const scheduledAt = typeof req.body?.scheduledAt === 'string' ? req.body.scheduledAt : String(req.body?.scheduledAt || '');
+  const normalizedMedia = resolveMediaPayloadFromRequest(req, req.body?.media);
   console.log(`Atualizando mensagem agendada ${id}. Nome: ${name}, Número: ${number}, Mensagem: ${message}, AgendadoPara: ${scheduledAt}`);
   
   if ((!message || message.trim() === "") && !normalizedMedia) {
@@ -1074,7 +1335,7 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        allowedHosts: ['maikysoft-uatizapi.iomi94.easypanel.host'],
+        allowedHosts: ['uatizapi.brazilianpremier.com.br'],
       },
       appType: "spa",
     });

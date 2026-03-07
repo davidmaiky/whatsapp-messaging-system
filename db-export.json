@@ -1,0 +1,145 @@
+{
+  "scheduled_messages": [
+    {
+      "id": 1,
+      "number": "5511222222222",
+      "name": "Atualizado",
+      "message": "Mensagem ATUALIZADA com sucesso",
+      "media_type": null,
+      "media_data": null,
+      "media_name": null,
+      "media_mime_type": null,
+      "scheduled_at": "2026-03-08T14:00:00",
+      "status": "Agendado"
+    },
+    {
+      "id": 2,
+      "number": "5511666666666",
+      "name": "Teste3",
+      "message": "Terceiro agendamento",
+      "media_type": null,
+      "media_data": null,
+      "media_name": null,
+      "media_mime_type": null,
+      "scheduled_at": "2026-03-09T10:00:00",
+      "status": "Agendado"
+    },
+    {
+      "id": 4,
+      "number": "5511999999999",
+      "name": "TesteIntegridade",
+      "message": "Teste final de integridade",
+      "media_type": null,
+      "media_data": null,
+      "media_name": null,
+      "media_mime_type": null,
+      "scheduled_at": "2026-03-11T10:00:00",
+      "status": "Agendado"
+    }
+  ],
+  "messages": [
+    {
+      "id": "1772896943119-5511111111111",
+      "number": "5511111111111",
+      "name": "Teste1",
+      "message": "Teste envio direto",
+      "media_type": null,
+      "media_name": null,
+      "status": "sent",
+      "created_at": "2026-03-07T15:22:23.119Z"
+    },
+    {
+      "id": "1772896943161-5511333333333",
+      "number": "5511333333333",
+      "name": null,
+      "message": "Teste bulk",
+      "media_type": null,
+      "media_name": null,
+      "status": "sent",
+      "created_at": "2026-03-07T15:22:23.161Z"
+    },
+    {
+      "id": "1772896944169-5511444444444",
+      "number": "5511444444444",
+      "name": null,
+      "message": "Teste bulk",
+      "media_type": null,
+      "media_name": null,
+      "status": "sent",
+      "created_at": "2026-03-07T15:22:24.169Z"
+    },
+    {
+      "id": "1772896945177-5511555555555",
+      "number": "5511555555555",
+      "name": null,
+      "message": "Teste bulk",
+      "media_type": null,
+      "media_name": null,
+      "status": "sent",
+      "created_at": "2026-03-07T15:22:25.177Z"
+    },
+    {
+      "id": "1772896976926-5511988888882",
+      "number": "5511988888882",
+      "name": "StressTest2",
+      "message": "Teste stress 2",
+      "media_type": null,
+      "media_name": null,
+      "status": "sent",
+      "created_at": "2026-03-07T15:22:56.926Z"
+    },
+    {
+      "id": "1772896976939-5511988888881",
+      "number": "5511988888881",
+      "name": "StressTest1",
+      "message": "Teste stress 1",
+      "media_type": null,
+      "media_name": null,
+      "status": "sent",
+      "created_at": "2026-03-07T15:22:56.939Z"
+    },
+    {
+      "id": "1772896976952-5511988888883",
+      "number": "5511988888883",
+      "name": "StressTest3",
+      "message": "Teste stress 3",
+      "media_type": null,
+      "media_name": null,
+      "status": "sent",
+      "created_at": "2026-03-07T15:22:56.952Z"
+    },
+    {
+      "id": "1772896976963-5511988888884",
+      "number": "5511988888884",
+      "name": "StressTest4",
+      "message": "Teste stress 4",
+      "media_type": null,
+      "media_name": null,
+      "status": "sent",
+      "created_at": "2026-03-07T15:22:56.963Z"
+    },
+    {
+      "id": "1772896976975-5511988888885",
+      "number": "5511988888885",
+      "name": "StressTest5",
+      "message": "Teste stress 5",
+      "media_type": null,
+      "media_name": null,
+      "status": "sent",
+      "created_at": "2026-03-07T15:22:56.975Z"
+    }
+  ],
+  "settings": [
+    {
+      "key": "instance_name",
+      "value": "brazilianpremier"
+    },
+    {
+      "key": "timezone",
+      "value": "America/Sao_Paulo"
+    }
+  ],
+  "users": [],
+  "roles": [],
+  "contacts": []
+}
