@@ -174,6 +174,8 @@ export default function App() {
   const scheduledFileInputRef = useRef<HTMLInputElement | null>(null);
   const editUserModalRef = useRef<HTMLDivElement | null>(null);
   const editRoleModalRef = useRef<HTMLDivElement | null>(null);
+  const editUserModalFocused = useRef(false);
+  const editRoleModalFocused = useRef(false);
   const itemsPerPage = 10;
 
   const showNotification = (type: 'success' | 'error', message: string) => {
@@ -1253,14 +1255,20 @@ Pedro Oliveira, 5511977777777`;
   }, [activePage]);
 
   useEffect(() => {
-    if (editingUser) {
+    if (editingUser && !editUserModalFocused.current) {
       editUserModalRef.current?.focus();
+      editUserModalFocused.current = true;
+    } else if (!editingUser) {
+      editUserModalFocused.current = false;
     }
   }, [editingUser]);
 
   useEffect(() => {
-    if (editingRole) {
+    if (editingRole && !editRoleModalFocused.current) {
       editRoleModalRef.current?.focus();
+      editRoleModalFocused.current = true;
+    } else if (!editingRole) {
+      editRoleModalFocused.current = false;
     }
   }, [editingRole]);
 
