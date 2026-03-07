@@ -5,6 +5,7 @@ import axios from "axios";
 import cron from "node-cron";
 import Database from "better-sqlite3";
 import multer from "multer";
+import QRCode from "qrcode";
 import path from "path";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
@@ -234,6 +235,175 @@ const waitWithStopCheck = async (ms: number) => {
   }
 
   return true;
+};
+
+type EvolutionConnectInfo = {
+  code: string;
+  pairingCode: string;
+};
+
+type EvolutionConnectResult = {
+  rawData: any;
+  code: string;
+  pairingCode: string;
+  qrImage: string;
+  error: string | null;
+};
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const normalizeEvolutionConnectInfo = (rawPayload: any): EvolutionConnectInfo => {
+  const candidates = [
+    rawPayload,
+    rawPayload?.response,
+    rawPayload?.data,
+    rawPayload?.response?.data,
+    rawPayload?.data?.response,
+  ];
+
+  let code = '';
+  let pairingCode = '';
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue;
+
+    const foundCode =
+      typeof candidate.code === 'string' && candidate.code.trim()
+        ? candidate.code.trim()
+        : typeof candidate.qrcode === 'string' && candidate.qrcode.trim()
+          ? candidate.qrcode.trim()
+          : typeof candidate.qrCode === 'string' && candidate.qrCode.trim()
+            ? candidate.qrCode.trim()
+            : typeof candidate.qr === 'string' && candidate.qr.trim()
+              ? candidate.qr.trim()
+              : typeof candidate.base64 === 'string' && candidate.base64.trim()
+                ? candidate.base64.trim()
+                : '';
+
+    const foundPairingCode =
+      typeof candidate.pairingCode === 'string' && candidate.pairingCode.trim()
+        ? candidate.pairingCode.trim()
+        : typeof candidate.pairing_code === 'string' && candidate.pairing_code.trim()
+          ? candidate.pairing_code.trim()
+          : '';
+
+    if (!code && foundCode) {
+      code = foundCode;
+    }
+
+    if (!pairingCode && foundPairingCode) {
+      pairingCode = foundPairingCode;
+    }
+
+    if (code && pairingCode) {
+      break;
+    }
+  }
+
+  return { code, pairingCode };
+};
+
+const buildQrImageFromCode = async (code: string): Promise<string> => {
+  const normalizedCode = code.trim();
+  if (!normalizedCode) return '';
+  if (normalizedCode.startsWith('data:image/')) return normalizedCode;
+
+  try {
+    return await QRCode.toDataURL(normalizedCode, {
+      width: 320,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+    });
+  } catch (error) {
+    console.error('Erro ao converter code em QR image:', error);
+    return '';
+  }
+};
+
+const fetchEvolutionConnectData = async (
+  instanceName: string,
+  attempts = 8,
+  delayMs = 1500,
+): Promise<EvolutionConnectResult> => {
+  const normalizedApiUrl = EVOLUTION_API_URL?.replace(/\/+$/, '') || '';
+
+  if (!normalizedApiUrl || !EVOLUTION_API_KEY) {
+    return {
+      rawData: null,
+      code: '',
+      pairingCode: '',
+      qrImage: '',
+      error: 'EVOLUTION_API_URL e EVOLUTION_API_KEY precisam estar configuradas no servidor.',
+    };
+  }
+
+  let lastRawData: any = null;
+  let lastError: string | null = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const response = await axios.get(
+        `${normalizedApiUrl}/instance/connect/${encodeURIComponent(instanceName)}`,
+        {
+          headers: {
+            apikey: EVOLUTION_API_KEY,
+          },
+        }
+      );
+
+      lastRawData = response.data || null;
+      const normalized = normalizeEvolutionConnectInfo(lastRawData);
+
+      if (normalized.code || normalized.pairingCode) {
+        const qrImage = await buildQrImageFromCode(normalized.code);
+
+        return {
+          rawData: lastRawData,
+          code: normalized.code,
+          pairingCode: normalized.pairingCode,
+          qrImage,
+          error: null,
+        };
+      }
+
+      const responseMessage =
+        typeof lastRawData?.response?.message === 'string'
+          ? lastRawData.response.message
+          : typeof lastRawData?.message === 'string'
+            ? lastRawData.message
+            : '';
+
+      lastError = responseMessage || 'Instância criada, aguardando disponibilização do QR code.';
+    } catch (error: any) {
+      lastRawData = error?.response?.data || null;
+      lastError =
+        lastRawData?.response?.message ||
+        lastRawData?.message ||
+        lastRawData?.error ||
+        error?.message ||
+        'Falha ao obter QR code da instância.';
+
+      console.error('Erro ao obter connect da instância:', {
+        instanceName,
+        attempt,
+        status: error?.response?.status,
+        message: error?.message,
+        data: lastRawData,
+      });
+    }
+
+    if (attempt < attempts) {
+      await wait(delayMs);
+    }
+  }
+
+  return {
+    rawData: lastRawData,
+    code: '',
+    pairingCode: '',
+    qrImage: '',
+    error: lastError || 'QR code indisponível no momento. Tente novamente em instantes.',
+  };
 };
 
 const mediaTypeToEndpoint: Record<MediaType, string> = {
@@ -822,6 +992,144 @@ app.post('/api/bulk-campaign/stop', (req, res) => {
 
   bulkCampaignStatus.stopRequested = true;
   return res.json({ status: 'stop-requested' });
+});
+
+app.post('/api/evolution/instances/create', async (req, res) => {
+  const rawInstanceName =
+    typeof req.body?.instanceName === 'string'
+      ? req.body.instanceName.trim()
+      : '';
+
+  if (!rawInstanceName) {
+    return res.status(400).json({ error: 'Nome da instância é obrigatório.' });
+  }
+
+  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
+    return res.status(500).json({
+      error: 'EVOLUTION_API_URL e EVOLUTION_API_KEY precisam estar configuradas no servidor.',
+    });
+  }
+
+  const requestedIntegration =
+    typeof req.body?.integration === 'string'
+      ? req.body.integration.trim().toUpperCase()
+      : 'WHATSAPP-BAILEYS';
+
+  const integration =
+    requestedIntegration === 'WHATSAPP-BUSINESS'
+      ? 'WHATSAPP-BUSINESS'
+      : 'WHATSAPP-BAILEYS';
+
+  const qrcode = typeof req.body?.qrcode === 'boolean' ? req.body.qrcode : true;
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const payload: Record<string, any> = {
+    instanceName: rawInstanceName,
+    integration,
+    qrcode,
+  };
+
+  if (token) {
+    payload.token = token;
+  }
+
+  const normalizedApiUrl = EVOLUTION_API_URL.replace(/\/+$/, '');
+
+  try {
+    const response = await axios.post(`${normalizedApiUrl}/instance/create`, payload, {
+      headers: {
+        apikey: EVOLUTION_API_KEY,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const createdInstanceName =
+      response.data?.instance?.instanceName ||
+      response.data?.instanceName ||
+      rawInstanceName;
+
+    let connectData: any = null;
+    let connectCode = '';
+    let pairingCode = '';
+    let connectQrImage = '';
+    let connectError: string | null = null;
+
+    if (qrcode) {
+      const connectResult = await fetchEvolutionConnectData(createdInstanceName, 8, 1500);
+      connectData = connectResult.rawData;
+      connectCode = connectResult.code;
+      pairingCode = connectResult.pairingCode;
+      connectQrImage = connectResult.qrImage;
+      connectError = connectResult.error;
+    }
+
+    db.prepare("UPDATE settings SET value = ? WHERE key = 'instance_name'").run(createdInstanceName);
+
+    return res.status(201).json({
+      status: 'created',
+      instanceName: createdInstanceName,
+      instance: response.data?.instance || null,
+      hash: response.data?.hash || null,
+      settings: response.data?.settings || null,
+      connect: connectData,
+      connectCode,
+      pairingCode,
+      connectQrImage,
+      connectError,
+    });
+  } catch (error: any) {
+    const statusCode = Number(error?.response?.status) || 502;
+    const rawErrorData = error?.response?.data;
+    const errorMessage =
+      rawErrorData?.response?.message ||
+      rawErrorData?.message ||
+      rawErrorData?.error ||
+      error?.message ||
+      'Falha ao criar instância na Evolution API.';
+
+    console.error('Erro ao criar instância na Evolution API:', {
+      status: error?.response?.status,
+      message: error?.message,
+      data: rawErrorData,
+    });
+
+    return res.status(statusCode).json({
+      error: errorMessage,
+      details: rawErrorData || null,
+    });
+  }
+});
+
+app.get('/api/evolution/instances/:instance/connect', async (req, res) => {
+  const rawInstanceName =
+    typeof req.params?.instance === 'string'
+      ? req.params.instance.trim()
+      : '';
+
+  if (!rawInstanceName) {
+    return res.status(400).json({ error: 'Nome da instância é obrigatório.' });
+  }
+
+  const connectResult = await fetchEvolutionConnectData(rawInstanceName, 8, 1500);
+
+  if (!connectResult.code && !connectResult.pairingCode) {
+    return res.status(409).json({
+      error: connectResult.error || 'QR code indisponível no momento. Tente novamente em instantes.',
+      connect: connectResult.rawData,
+      connectCode: '',
+      pairingCode: '',
+      connectQrImage: '',
+    });
+  }
+
+  return res.json({
+    status: 'ok',
+    instanceName: rawInstanceName,
+    connect: connectResult.rawData,
+    connectCode: connectResult.code,
+    pairingCode: connectResult.pairingCode,
+    connectQrImage: connectResult.qrImage,
+    connectError: connectResult.error,
+  });
 });
 
 app.get("/api/settings", (req, res) => {

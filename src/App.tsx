@@ -147,6 +147,16 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [instanceName, setInstanceName] = useState('');
+  const [newInstanceName, setNewInstanceName] = useState('');
+  const [newInstanceIntegration, setNewInstanceIntegration] = useState<'WHATSAPP-BAILEYS' | 'WHATSAPP-BUSINESS'>('WHATSAPP-BAILEYS');
+  const [newInstanceQrcode, setNewInstanceQrcode] = useState(true);
+  const [createdInstanceConnectName, setCreatedInstanceConnectName] = useState('');
+  const [createdInstanceConnectCode, setCreatedInstanceConnectCode] = useState('');
+  const [createdInstancePairingCode, setCreatedInstancePairingCode] = useState('');
+  const [createdInstanceConnectQrImage, setCreatedInstanceConnectQrImage] = useState('');
+  const [createdInstanceConnectError, setCreatedInstanceConnectError] = useState('');
+  const [isCreatingInstance, setIsCreatingInstance] = useState(false);
+  const [isRefreshingInstanceQr, setIsRefreshingInstanceQr] = useState(false);
   const [timezone, setTimezone] = useState('America/Sao_Paulo');
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [users, setUsers] = useState<User[]>([]);
@@ -435,6 +445,211 @@ export default function App() {
       body: JSON.stringify({ instanceName, timezone }),
     });
     showNotification('success', 'Configurações atualizadas com sucesso!');
+  };
+
+  const extractEvolutionConnectFields = (data: any) => {
+    const connect = data?.connect || {};
+
+    const codeCandidates = [
+      data?.connectCode,
+      connect?.code,
+      connect?.qrcode,
+      connect?.qrCode,
+      connect?.qr,
+      connect?.base64,
+      connect?.response?.code,
+      connect?.response?.qrcode,
+      connect?.response?.qrCode,
+      connect?.response?.qr,
+      connect?.response?.base64,
+    ];
+
+    const pairingCodeCandidates = [
+      data?.pairingCode,
+      connect?.pairingCode,
+      connect?.pairing_code,
+      connect?.response?.pairingCode,
+      connect?.response?.pairing_code,
+    ];
+
+    const connectCode =
+      codeCandidates.find((candidate) => typeof candidate === 'string' && candidate.trim())?.trim() || '';
+
+    const pairingCode =
+      pairingCodeCandidates.find((candidate) => typeof candidate === 'string' && candidate.trim())?.trim() || '';
+
+    const qrImageRaw =
+      (typeof data?.connectQrImage === 'string' ? data.connectQrImage.trim() : '') ||
+      (typeof connect?.qrImage === 'string' ? connect.qrImage.trim() : '') ||
+      (typeof connect?.response?.qrImage === 'string' ? connect.response.qrImage.trim() : '');
+
+    const connectQrImage =
+      qrImageRaw || (connectCode.startsWith('data:image/') ? connectCode : '');
+
+    return {
+      connectCode,
+      pairingCode,
+      connectQrImage,
+    };
+  };
+
+  const resolveQrImageSource = () => {
+    const qrImage = createdInstanceConnectQrImage.trim();
+    if (qrImage) {
+      return qrImage;
+    }
+
+    const connectCode = createdInstanceConnectCode.trim();
+    if (!connectCode) {
+      return '';
+    }
+
+    if (connectCode.startsWith('data:image/')) {
+      return connectCode;
+    }
+
+    return `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(connectCode)}`;
+  };
+
+  const refreshEvolutionInstanceQr = async (instanceNameToConnect?: string) => {
+    const targetInstanceName = (instanceNameToConnect || createdInstanceConnectName || instanceName || newInstanceName).trim();
+
+    if (!targetInstanceName) {
+      showNotification('error', 'Informe ou selecione uma instância para gerar o QR Code');
+      return;
+    }
+
+    setIsRefreshingInstanceQr(true);
+    setCreatedInstanceConnectError('');
+
+    try {
+      const response = await fetch(`/api/evolution/instances/${encodeURIComponent(targetInstanceName)}/connect`);
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const errorMessage = data.error || 'Não foi possível gerar o QR Code da instância';
+        setCreatedInstanceConnectName(targetInstanceName);
+        setCreatedInstanceConnectCode('');
+        setCreatedInstancePairingCode('');
+        setCreatedInstanceConnectQrImage('');
+        setCreatedInstanceConnectError(errorMessage);
+        showNotification('error', errorMessage);
+        return;
+      }
+
+      const { connectCode, pairingCode, connectQrImage } = extractEvolutionConnectFields(data);
+
+      if (!connectCode && !pairingCode) {
+        setCreatedInstanceConnectName(targetInstanceName);
+        setCreatedInstanceConnectCode('');
+        setCreatedInstancePairingCode('');
+        setCreatedInstanceConnectQrImage('');
+        setCreatedInstanceConnectError('QR Code ainda não disponível para esta instância');
+        showNotification('error', 'QR Code ainda não disponível para esta instância');
+        return;
+      }
+
+      setCreatedInstanceConnectName(targetInstanceName);
+      setCreatedInstanceConnectCode(connectCode);
+      setCreatedInstancePairingCode(pairingCode);
+      setCreatedInstanceConnectQrImage(connectQrImage);
+      setCreatedInstanceConnectError('');
+      showNotification('success', `QR Code da instância "${targetInstanceName}" atualizado!`);
+    } catch (error: any) {
+      setCreatedInstanceConnectError(error?.message || 'Erro ao atualizar QR Code da instância');
+      showNotification('error', error?.message || 'Erro ao atualizar QR Code da instância');
+    } finally {
+      setIsRefreshingInstanceQr(false);
+    }
+  };
+
+  const createEvolutionInstance = async () => {
+    const normalizedInstanceName = newInstanceName.trim();
+
+    if (!normalizedInstanceName) {
+      showNotification('error', 'Informe o nome da instância para criar');
+      return;
+    }
+
+    setIsCreatingInstance(true);
+    setCreatedInstanceConnectName('');
+    setCreatedInstanceConnectCode('');
+    setCreatedInstancePairingCode('');
+    setCreatedInstanceConnectQrImage('');
+    setCreatedInstanceConnectError('');
+
+    try {
+      const response = await fetch('/api/evolution/instances/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instanceName: normalizedInstanceName,
+          integration: newInstanceIntegration,
+          qrcode: newInstanceQrcode,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        showNotification('error', data.error || 'Erro ao criar instância na Evolution API');
+        return;
+      }
+
+      const createdInstanceName = data.instanceName || data.instance?.instanceName || normalizedInstanceName;
+      let { connectCode, pairingCode, connectQrImage } = extractEvolutionConnectFields(data);
+      let connectError = typeof data.connectError === 'string' ? data.connectError.trim() : '';
+
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceName: createdInstanceName }),
+      });
+
+      setInstanceName(createdInstanceName);
+      setCreatedInstanceConnectName(createdInstanceName);
+      setCreatedInstanceConnectCode(connectCode);
+      setCreatedInstancePairingCode(pairingCode);
+      setCreatedInstanceConnectQrImage(connectQrImage);
+      setCreatedInstanceConnectError(connectError);
+      setNewInstanceName('');
+
+      if (newInstanceQrcode && !connectCode && !connectQrImage) {
+        const connectResponse = await fetch(`/api/evolution/instances/${encodeURIComponent(createdInstanceName)}/connect`);
+        const connectData = await connectResponse.json().catch(() => ({}));
+
+        if (connectResponse.ok) {
+          const extracted = extractEvolutionConnectFields(connectData);
+          connectCode = extracted.connectCode;
+          pairingCode = extracted.pairingCode;
+          connectQrImage = extracted.connectQrImage;
+
+          setCreatedInstanceConnectCode(connectCode);
+          setCreatedInstancePairingCode(pairingCode);
+          setCreatedInstanceConnectQrImage(connectQrImage);
+          setCreatedInstanceConnectError('');
+        } else {
+          connectError = connectData.error || connectError || 'QR Code indisponível no momento.';
+          setCreatedInstanceConnectError(connectError);
+        }
+      }
+
+      if (newInstanceQrcode && connectError) {
+        showNotification('error', `Instância criada, mas não foi possível gerar o QR Code: ${connectError}`);
+        return;
+      }
+
+      if (newInstanceQrcode && (connectCode || pairingCode || connectQrImage)) {
+        showNotification('success', `Instância "${createdInstanceName}" criada e QR Code disponível!`);
+        return;
+      }
+
+      showNotification('success', `Instância "${createdInstanceName}" criada e definida com sucesso!`);
+    } catch (error: any) {
+      showNotification('error', error?.message || 'Erro ao criar instância');
+    } finally {
+      setIsCreatingInstance(false);
+    }
   };
 
   const fetchUsers = async () => {
@@ -2323,6 +2538,88 @@ Pedro Oliveira, 5511977777777`;
             {/* Tab Content */}
             {settingsTab === 'general' && canAccessSettingsTab('general') && (
               <div className="space-y-4 max-w-2xl">
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Criar Nova Instância Evolution API
+                  </label>
+                  <div className="space-y-3">
+                    <input
+                      className="w-full p-3 border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+                      value={newInstanceName}
+                      onChange={e => setNewInstanceName(e.target.value)}
+                      placeholder="Ex: minha-instancia-nova"
+                    />
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Integração
+                      </label>
+                      <select
+                        className="w-full p-3 border border-slate-200 bg-white rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+                        value={newInstanceIntegration}
+                        onChange={e => setNewInstanceIntegration(e.target.value as 'WHATSAPP-BAILEYS' | 'WHATSAPP-BUSINESS')}
+                      >
+                        <option value="WHATSAPP-BAILEYS">WHATSAPP-BAILEYS</option>
+                        <option value="WHATSAPP-BUSINESS">WHATSAPP-BUSINESS</option>
+                      </select>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={newInstanceQrcode}
+                        onChange={e => setNewInstanceQrcode(e.target.checked)}
+                      />
+                      Gerar QR Code automaticamente
+                    </label>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 mt-3">
+                    <button
+                      type="button"
+                      className="px-4 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-300 disabled:cursor-not-allowed text-slate-900 rounded-xl font-semibold transition"
+                      onClick={createEvolutionInstance}
+                      disabled={isCreatingInstance}
+                    >
+                      {isCreatingInstance ? 'Criando...' : 'Criar Instância'}
+                    </button>
+                    <button
+                      type="button"
+                      className="px-4 py-3 bg-slate-200 hover:bg-slate-300 disabled:bg-slate-100 disabled:cursor-not-allowed text-slate-800 rounded-xl font-semibold transition"
+                      onClick={() => refreshEvolutionInstanceQr()}
+                      disabled={isCreatingInstance || isRefreshingInstanceQr}
+                    >
+                      {isRefreshingInstanceQr ? 'Gerando QR...' : 'Gerar QR novamente'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Cria a instância no Evolution API e já define como instância ativa no sistema.
+                  </p>
+                  {(createdInstanceConnectName || createdInstanceConnectCode || createdInstancePairingCode || createdInstanceConnectError) && (
+                    <div className="mt-3 p-3 bg-white rounded-xl border border-slate-200">
+                      <p className="text-sm font-semibold text-slate-700 mb-2">
+                        QR Code da instância {createdInstanceConnectName || 'recém-criada'}
+                      </p>
+                      {resolveQrImageSource() ? (
+                        <img
+                          src={resolveQrImageSource()}
+                          alt={`QR Code da instância ${createdInstanceConnectName || ''}`}
+                          className="w-52 h-52 rounded-lg border border-slate-200 bg-white p-2"
+                        />
+                      ) : (
+                        <p className="text-xs text-slate-500">Imagem do QR Code ainda não disponível. Clique em "Gerar QR novamente".</p>
+                      )}
+                      {createdInstanceConnectError && (
+                        <p className="text-xs text-red-600 mt-2">
+                          {createdInstanceConnectError}
+                        </p>
+                      )}
+                      {createdInstancePairingCode && (
+                        <p className="text-xs text-slate-600 mt-2">
+                          Código de pareamento: <strong>{createdInstancePairingCode}</strong>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
                     Nome da Instância Evolution API
