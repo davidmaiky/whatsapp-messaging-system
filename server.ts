@@ -1132,6 +1132,70 @@ app.get('/api/evolution/instances/:instance/connect', async (req, res) => {
   });
 });
 
+app.get('/api/evolution/instances/:instance/connection-state', async (req, res) => {
+  const rawInstanceName =
+    typeof req.params?.instance === 'string'
+      ? req.params.instance.trim()
+      : '';
+
+  if (!rawInstanceName) {
+    return res.status(400).json({ error: 'Nome da instância é obrigatório.' });
+  }
+
+  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
+    return res.status(500).json({
+      error: 'EVOLUTION_API_URL e EVOLUTION_API_KEY precisam estar configuradas no servidor.',
+    });
+  }
+
+  const normalizedApiUrl = EVOLUTION_API_URL.replace(/\/+$/, '');
+
+  try {
+    const response = await axios.get(
+      `${normalizedApiUrl}/instance/connectionState/${encodeURIComponent(rawInstanceName)}`,
+      {
+        headers: {
+          apikey: EVOLUTION_API_KEY,
+        },
+      }
+    );
+
+    const connection = response.data || null;
+    const state =
+      (typeof connection?.instance?.state === 'string' ? connection.instance.state : '') ||
+      (typeof connection?.response?.instance?.state === 'string' ? connection.response.instance.state : '') ||
+      (typeof connection?.state === 'string' ? connection.state : '');
+
+    return res.json({
+      status: 'ok',
+      instanceName: rawInstanceName,
+      state,
+      connection,
+    });
+  } catch (error: any) {
+    const statusCode = Number(error?.response?.status) || 502;
+    const rawErrorData = error?.response?.data;
+    const errorMessage =
+      rawErrorData?.response?.message ||
+      rawErrorData?.message ||
+      rawErrorData?.error ||
+      error?.message ||
+      'Falha ao consultar estado de conexão da instância.';
+
+    console.error('Erro ao consultar connectionState da instância:', {
+      instanceName: rawInstanceName,
+      status: error?.response?.status,
+      message: error?.message,
+      data: rawErrorData,
+    });
+
+    return res.status(statusCode).json({
+      error: errorMessage,
+      details: rawErrorData || null,
+    });
+  }
+});
+
 app.get("/api/settings", (req, res) => {
   const instanceSetting = db.prepare("SELECT value FROM settings WHERE key = 'instance_name'").get();
   const timezoneSetting = db.prepare("SELECT value FROM settings WHERE key = 'timezone'").get();

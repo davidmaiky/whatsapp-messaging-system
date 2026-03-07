@@ -155,6 +155,7 @@ export default function App() {
   const [createdInstancePairingCode, setCreatedInstancePairingCode] = useState('');
   const [createdInstanceConnectQrImage, setCreatedInstanceConnectQrImage] = useState('');
   const [createdInstanceConnectError, setCreatedInstanceConnectError] = useState('');
+  const [createdInstanceConnectionState, setCreatedInstanceConnectionState] = useState('');
   const [isCreatingInstance, setIsCreatingInstance] = useState(false);
   const [isRefreshingInstanceQr, setIsRefreshingInstanceQr] = useState(false);
   const [timezone, setTimezone] = useState('America/Sao_Paulo');
@@ -186,6 +187,7 @@ export default function App() {
   const editRoleModalRef = useRef<HTMLDivElement | null>(null);
   const editUserModalFocused = useRef(false);
   const editRoleModalFocused = useRef(false);
+  const hasShownConnectionSuccessNotification = useRef(false);
   const itemsPerPage = 10;
 
   const showNotification = (type: 'success' | 'error', message: string) => {
@@ -511,6 +513,55 @@ export default function App() {
     return `https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=${encodeURIComponent(connectCode)}`;
   };
 
+  const extractEvolutionConnectionState = (data: any) => {
+    const stateCandidate =
+      (typeof data?.state === 'string' ? data.state : '') ||
+      (typeof data?.connection?.instance?.state === 'string' ? data.connection.instance.state : '') ||
+      (typeof data?.connection?.response?.instance?.state === 'string' ? data.connection.response.instance.state : '') ||
+      (typeof data?.connection?.state === 'string' ? data.connection.state : '');
+
+    return stateCandidate.trim().toLowerCase();
+  };
+
+  const checkEvolutionInstanceConnectionState = async (
+    instanceNameToCheck?: string,
+    notifyOnError = false,
+  ) => {
+    const targetInstanceName = (instanceNameToCheck || createdInstanceConnectName || instanceName).trim();
+
+    if (!targetInstanceName) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/evolution/instances/${encodeURIComponent(targetInstanceName)}/connection-state`);
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        if (notifyOnError) {
+          showNotification('error', data.error || 'Não foi possível verificar estado da conexão');
+        }
+        return;
+      }
+
+      const connectionState = extractEvolutionConnectionState(data);
+      if (connectionState) {
+        setCreatedInstanceConnectionState(connectionState);
+      }
+
+      const isConnected = connectionState === 'open' || connectionState === 'connected';
+      if (isConnected && !hasShownConnectionSuccessNotification.current) {
+        hasShownConnectionSuccessNotification.current = true;
+        setCreatedInstanceConnectError('');
+        showNotification('success', `Conexão da instância "${targetInstanceName}" foi bem-sucedida!`);
+      }
+    } catch (error: any) {
+      if (notifyOnError) {
+        showNotification('error', error?.message || 'Erro ao verificar estado da conexão');
+      }
+    }
+  };
+
   const refreshEvolutionInstanceQr = async (instanceNameToConnect?: string) => {
     const targetInstanceName = (instanceNameToConnect || createdInstanceConnectName || instanceName || newInstanceName).trim();
 
@@ -554,6 +605,7 @@ export default function App() {
       setCreatedInstancePairingCode(pairingCode);
       setCreatedInstanceConnectQrImage(connectQrImage);
       setCreatedInstanceConnectError('');
+      await checkEvolutionInstanceConnectionState(targetInstanceName);
       showNotification('success', `QR Code da instância "${targetInstanceName}" atualizado!`);
     } catch (error: any) {
       setCreatedInstanceConnectError(error?.message || 'Erro ao atualizar QR Code da instância');
@@ -577,6 +629,8 @@ export default function App() {
     setCreatedInstancePairingCode('');
     setCreatedInstanceConnectQrImage('');
     setCreatedInstanceConnectError('');
+    setCreatedInstanceConnectionState('');
+    hasShownConnectionSuccessNotification.current = false;
 
     try {
       const response = await fetch('/api/evolution/instances/create', {
@@ -612,6 +666,7 @@ export default function App() {
       setCreatedInstancePairingCode(pairingCode);
       setCreatedInstanceConnectQrImage(connectQrImage);
       setCreatedInstanceConnectError(connectError);
+      setCreatedInstanceConnectionState('');
       setNewInstanceName('');
 
       if (newInstanceQrcode && !connectCode && !connectQrImage) {
@@ -634,6 +689,8 @@ export default function App() {
         }
       }
 
+      await checkEvolutionInstanceConnectionState(createdInstanceName);
+
       if (newInstanceQrcode && connectError) {
         showNotification('error', `Instância criada, mas não foi possível gerar o QR Code: ${connectError}`);
         return;
@@ -651,6 +708,25 @@ export default function App() {
       setIsCreatingInstance(false);
     }
   };
+
+  useEffect(() => {
+    if (!createdInstanceConnectName || hasShownConnectionSuccessNotification.current) {
+      return;
+    }
+
+    checkEvolutionInstanceConnectionState(createdInstanceConnectName);
+
+    const interval = setInterval(() => {
+      if (hasShownConnectionSuccessNotification.current) {
+        clearInterval(interval);
+        return;
+      }
+
+      checkEvolutionInstanceConnectionState(createdInstanceConnectName);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [createdInstanceConnectName]);
 
   const fetchUsers = async () => {
     try {
@@ -2610,6 +2686,11 @@ Pedro Oliveira, 5511977777777`;
                       {createdInstanceConnectError && (
                         <p className="text-xs text-red-600 mt-2">
                           {createdInstanceConnectError}
+                        </p>
+                      )}
+                      {createdInstanceConnectionState && (
+                        <p className="text-xs text-slate-600 mt-2">
+                          Status da conexão: <strong>{createdInstanceConnectionState}</strong>
                         </p>
                       )}
                       {createdInstancePairingCode && (
